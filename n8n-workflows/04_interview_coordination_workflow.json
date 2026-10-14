@@ -1,0 +1,187 @@
+{
+  "name": "CV Screener - 04 Interview Scheduling & Google Calendar",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "schedule-interview",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Webhook: Approved Interview Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "cv-screener-interview-coordination"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.body.hasGoogleCredentials }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Check Google Auth",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "id"
+        },
+        "start": "={{ $json.body.scheduledStart }}",
+        "end": "={{ $json.body.scheduledEnd }}",
+        "summary": "=Round 2 Technical Interview: {{ $json.body.candidateName }} - {{ $json.body.jobTitle }}",
+        "description": "=Candidate: {{ $json.body.candidateName }}\nEmail: {{ $json.body.candidateEmail }}\nRole: {{ $json.body.jobTitle }}\nInterviewer: {{ $json.body.interviewerName }}\n\nScheduled via AI Recruitment Automation Platform.",
+        "additionalFields": {
+          "conferenceDataUi": {
+            "conferenceDataValues": {
+              "conferenceSolution": "hangoutsMeet"
+            }
+          }
+        }
+      },
+      "name": "Create Google Calendar Event & Meet",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.1,
+      "position": [740, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}/api/interviews/calendar-callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_SHARED_SECRET || 'demo_shared_secret_2026' }}"
+            },
+            {
+              "name": "X-Idempotency-Key",
+              "value": "={{ 'cal-event-' + $json.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "interviewId",
+              "value": "={{ $('Webhook: Approved Interview Request').item.json.body.interviewId }}"
+            },
+            {
+              "name": "googleEventId",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "meetingUrl",
+              "value": "={{ $json.hangoutLink || $json.htmlLink }}"
+            },
+            {
+              "name": "status",
+              "value": "SCHEDULED"
+            }
+          ]
+        }
+      },
+      "name": "Update Interview In App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}/api/interviews/calendar-callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_SHARED_SECRET || 'demo_shared_secret_2026' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "interviewId",
+              "value": "={{ $json.body.interviewId }}"
+            },
+            {
+              "name": "mode",
+              "value": "MANUAL"
+            },
+            {
+              "name": "status",
+              "value": "SCHEDULED"
+            },
+            {
+              "name": "note",
+              "value": "Google Calendar not connected. Processed under Manual Scheduling Mode."
+            }
+          ]
+        }
+      },
+      "name": "Fallback: Manual Scheduling",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [740, 400]
+    }
+  ],
+  "connections": {
+    "Webhook: Approved Interview Request": {
+      "main": [
+        [
+          {
+            "node": "Check Google Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Google Auth": {
+      "main": [
+        [
+          {
+            "node": "Create Google Calendar Event & Meet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback: Manual Scheduling",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Google Calendar Event & Meet": {
+      "main": [
+        [
+          {
+            "node": "Update Interview In App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

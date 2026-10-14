@@ -1,0 +1,29 @@
+MARCUS BRODY
+Email: marcus.brody@example.com
+Phone: +1 (555) 456-7890
+Location: Austin, TX | Remote
+LinkedIn: linkedin.com/in/marcus-brody
+GitHub: github.com/mbrody-eng
+
+PROFESSIONAL SUMMARY
+Senior Distributed Systems Architect with 7 years of experience engineering high-throughput microservices, data pipelines, and cloud native infrastructure. Strong polyglot background with deep relational database expertise and container orchestration.
+
+TECHNICAL COMPETENCIES
+- Core Technologies: TypeScript, Python, Go, SQL
+- API Architectures: FastAPI, Node.js, RESTful microservices, gRPC, Event-driven architecture
+- Databases: PostgreSQL, Redis, ClickHouse
+- Frontend: React, Next.js, TypeScript
+- Cloud & Infrastructure: Kubernetes, Docker, Terraform, AWS, Prometheus
+
+PROFESSIONAL EXPERIENCE
+Lead Cloud Architect | Omnia Platform Labs (2020 – Present)
+- Architected enterprise cloud platform orchestrating 40+ microservices on Kubernetes and Docker.
+- Implemented asynchronous ingestion pipelines using PostgreSQL and FastAPI.
+- Supervised development of client portal using React and TypeScript.
+
+Systems Engineer | DataFlow Inc (2017 – 2020)
+- Designed database schemas, partitions, and replication strategies in PostgreSQL.
+- Authored CI/CD build scripts and automated integration testing.
+
+EDUCATION
+B.S. in Computer Engineering | University of Texas at Austin (2013 – 2017)

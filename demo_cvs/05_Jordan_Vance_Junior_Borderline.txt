@@ -1,0 +1,23 @@
+JORDAN VANCE
+Email: jordan.vance@example.com
+Phone: +1 (555) 678-9012
+Location: Denver, CO
+LinkedIn: linkedin.com/in/jordan-vance
+GitHub: github.com/jvance
+
+PROFESSIONAL SUMMARY
+Junior Software Developer with 2 years of experience building web applications and scripting backend utilities. Eager to expand into large-scale cloud microservices and distributed database environments.
+
+TECHNICAL SKILLS
+- Languages: JavaScript, Python, HTML, CSS
+- Backend: Basic Node.js, Express
+- Databases: SQLite, MySQL
+- Version Control: Git
+
+PROFESSIONAL EXPERIENCE
+Associate Web Developer | Alpine Creative (2022 – Present)
+- Assisted in building marketing websites and internal forms using JavaScript and Node.js.
+- Executed database migrations and schema maintenance on local SQLite instances.
+
+EDUCATION
+B.A. in Digital Media & Computing | University of Colorado (2018 – 2022)

@@ -1,0 +1,25 @@
+AISHA AL-MANSOOR
+Email: aisha.almansoor@example.com
+Phone: +1 (555) 789-0123
+Location: New York, NY | Remote
+LinkedIn: linkedin.com/in/aisha-almansoor
+GitHub: github.com/aisha-ui
+
+PROFESSIONAL SUMMARY
+Senior Frontend Engineer with 5 years of dedicated web UI specialization. Creator of widely-used design system component libraries. Strong expertise in React, Next.js, TypeScript, state management, and accessibility standards.
+
+TECHNICAL EXPERTISE
+- Frontend: React, Next.js, TypeScript, Redux Toolkit, Tailwind CSS, Webpack
+- Testing: Jest, React Testing Library, Cypress
+- Tooling: Git, Figma to Code, Storybook
+
+WORK EXPERIENCE
+Lead Frontend Engineer | PixelCraft Systems (2021 – Present)
+- Led frontend design system migration to Next.js and TypeScript across 12 product teams.
+- Optimized Lighthouse Core Web Vitals to consistent 95+ scores.
+
+UI Developer | BlueWave Technologies (2019 – 2021)
+- Developed responsive SPAs in React with rich animations and micro-interactions.
+
+EDUCATION
+B.S. in Computer Science | Columbia University (2015 – 2019)

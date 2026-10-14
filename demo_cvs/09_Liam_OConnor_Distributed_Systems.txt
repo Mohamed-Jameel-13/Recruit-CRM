@@ -1,0 +1,28 @@
+LIAM O'CONNOR
+Email: liam.oconnor@example.com
+Phone: +1 (555) 012-3456
+Location: Dublin, Ireland | Remote
+LinkedIn: linkedin.com/in/liam-oconnor-dev
+GitHub: github.com/loconnor
+
+PROFESSIONAL SUMMARY
+Senior Backend & Systems Engineer with 5 years of production experience developing distributed services, resilient SQL database backends, and microservice architectures. Strong background in TypeScript, Node.js, and containerized deployments.
+
+SKILLS
+- Languages: TypeScript, JavaScript, SQL, Python
+- Backend: Node.js, Express, Microservices, System Architecture
+- Relational Databases: MariaDB, PostgreSQL, MySQL
+- Frontend: React, Next.js, HTML5, CSS3
+- Infrastructure: Docker, AWS, Git, CI/CD
+
+EXPERIENCE
+Senior Software Engineer | Celtic Cloud Solutions (2021 – Present)
+- Designed asynchronous webhook processors in Node.js and TypeScript.
+- Managed relational schema migrations across PostgreSQL and MariaDB clusters.
+- Configured Docker containers for development and automated testing.
+
+Software Engineer | Eire Web Systems (2019 – 2021)
+- Developed REST endpoints and administrative React web applications.
+
+EDUCATION
+B.Sc. in Computer Applications | Dublin City University (2015 – 2019)

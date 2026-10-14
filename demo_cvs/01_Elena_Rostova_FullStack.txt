@@ -1,0 +1,29 @@
+ELENA ROSTOVA
+Email: elena.rostova@example.com
+Phone: +1 (555) 234-5678
+Location: San Francisco, CA | Remote
+LinkedIn: linkedin.com/in/elena-rostova
+GitHub: github.com/elena-rostova
+
+PROFESSIONAL SUMMARY
+Senior Full-Stack Cloud Engineer with 6+ years of production experience designing scalable distributed web platforms, high-throughput REST/GraphQL APIs, and cloud microservices. Proven track record leading enterprise migration to modern TypeScript, Node.js, and PostgreSQL architectures.
+
+CORE TECHNICAL SKILLS
+- Languages: TypeScript, JavaScript, SQL, HTML5, CSS3
+- Backend: Node.js, Express, NestJS, RESTful APIs, Microservices, System Architecture
+- Databases: PostgreSQL (advanced schema design, CTEs, query optimization, indexing), Redis
+- Frontend: React, Next.js, Redux Toolkit, Tailwind CSS
+- Cloud & DevOps: Docker, Kubernetes, AWS (ECS, S3, RDS), CI/CD (GitHub Actions)
+
+PROFESSIONAL EXPERIENCE
+Senior Software Engineer | CloudScale Systems (2021 – Present)
+- Architected enterprise multi-tenant SaaS application serving 500k monthly active users using TypeScript, Node.js, and PostgreSQL.
+- Optimized slow SQL queries and designed composite database indexes, cutting p95 query latency by 45%.
+- Containerized microservices using Docker and orchestrated automated deployment pipelines on AWS.
+
+Full-Stack Developer | Apex Digital (2018 – 2021)
+- Built responsive user dashboards in React and Next.js integrated with Node.js backend services.
+- Implemented real-time telemetry streaming and background queue processing.
+
+EDUCATION
+B.S. in Computer Science | University of California, Berkeley (2014 – 2018)

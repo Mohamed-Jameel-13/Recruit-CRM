@@ -1,0 +1,162 @@
+{
+  "name": "CV Screener - 05 Reminders, Dead-Letter Recovery & Error Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "name": "Daily Reminder Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}/api/assessments/overdue",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_SHARED_SECRET || 'demo_shared_secret_2026' }}"
+            }
+          ]
+        }
+      },
+      "name": "Fetch Overdue Assessments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 240]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "name": "Split Overdue Items",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 1,
+      "position": [720, 240]
+    },
+    {
+      "parameters": {
+        "fromEmail": "recruitment@acme.example.com",
+        "toEmail": "={{ $json.candidate_email }}",
+        "subject": "=Friendly Reminder: Technical Assessment Due Soon",
+        "text": "=Hello {{ $json.candidate_name }},\n\nThis is a friendly reminder that your technical assessment for {{ $json.job_title }} is due on {{ $json.due_date }}.\n\nLink: {{ $json.assessment_url }}\n\nBest regards,\nRecruitment Team",
+        "options": {}
+      },
+      "name": "Send Reminder Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [960, 240]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dead-letter-alert",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Webhook: Dead Letter / Stuck Workflow",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 480],
+      "webhookId": "cv-screener-dead-letter-alerts"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}/api/audit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_SHARED_SECRET || 'demo_shared_secret_2026' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "action",
+              "value": "AUTOMATION_ERROR_LOGGED"
+            },
+            {
+              "name": "details",
+              "value": "={{ $json.body }}"
+            }
+          ]
+        }
+      },
+      "name": "Log Failure To System Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [520, 480]
+    }
+  ],
+  "connections": {
+    "Daily Reminder Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Overdue Assessments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Overdue Assessments": {
+      "main": [
+        [
+          {
+            "node": "Split Overdue Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Overdue Items": {
+      "main": [
+        [
+          {
+            "node": "Send Reminder Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Dead Letter / Stuck Workflow": {
+      "main": [
+        [
+          {
+            "node": "Log Failure To System Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

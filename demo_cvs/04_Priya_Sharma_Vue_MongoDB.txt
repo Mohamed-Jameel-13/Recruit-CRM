@@ -1,0 +1,27 @@
+PRIYA SHARMA
+Email: priya.sharma@example.com
+Phone: +1 (555) 567-8901
+Location: Chicago, IL | Remote
+LinkedIn: linkedin.com/in/priya-sharma-dev
+GitHub: github.com/priyasharma
+
+PROFESSIONAL SUMMARY
+Full-Stack Engineer with 4 years of hands-on experience building enterprise web portals, document-driven data services, and interactive single-page applications. Strong proponent of clean architecture and automated test coverage.
+
+SKILLS & PROFICIENCIES
+- Frontend: Vue.js, Nuxt, JavaScript, TypeScript, CSS3, Tailwind CSS
+- Backend: Node.js, Express, REST APIs
+- Persistence: MongoDB, PostgreSQL, Redis
+- Tools: Docker, Git, Jest, CI/CD, AWS S3
+
+PROFESSIONAL EXPERIENCE
+Full-Stack Engineer | Nexus Commerce (2021 – Present)
+- Developed customer ordering workflows and catalog management interfaces using Vue.js and Node.js.
+- Designed document schemas in MongoDB and managed relational tables in PostgreSQL.
+- Containerized development workflows using Docker.
+
+Junior Web Developer | Catalyst Studio (2020 – 2021)
+- Built responsive UI components and integrated third-party REST webhooks.
+
+EDUCATION
+B.S. in Information Systems | University of Illinois Urbana-Champaign (2016 – 2020)

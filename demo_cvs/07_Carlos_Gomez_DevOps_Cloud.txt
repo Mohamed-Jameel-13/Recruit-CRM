@@ -1,0 +1,25 @@
+CARLOS GOMEZ
+Email: carlos.gomez@example.com
+Phone: +1 (555) 890-1234
+Location: Miami, FL | Remote
+LinkedIn: linkedin.com/in/carlos-gomez-cloud
+GitHub: github.com/cgomez-ops
+
+PROFESSIONAL SUMMARY
+Senior Cloud Infrastructure & SRE with 6 years of experience managing high-availability Kubernetes clusters, cloud networking, and containerization. Strong operational background in Docker, Terraform, and AWS.
+
+CORE SKILLS
+- Cloud & Infrastructure: Docker, Kubernetes, AWS, Terraform, Ansible, Linux
+- Monitoring: Prometheus, Grafana, Datadog
+- Languages: Go, Python, Bash, basic Node.js
+
+WORK EXPERIENCE
+Senior DevOps Engineer | CloudSphere Networks (2020 – Present)
+- Architected multi-region AWS infrastructure with Docker and Kubernetes.
+- Automated zero-downtime rolling deployment pipelines.
+
+Systems Administrator | TierOne Hosting (2018 – 2020)
+- Configured Linux servers, Nginx reverse proxies, and backup automation.
+
+EDUCATION
+B.S. in Information Technology | Florida International University (2014 – 2018)

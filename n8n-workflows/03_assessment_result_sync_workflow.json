@@ -1,0 +1,146 @@
+{
+  "name": "CV Screener - 03 Google Forms & Sheets Result Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "name": "Cron: Poll Google Sheets",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ASSESSMENT_RESPONSES_ID || 'demo_responses_sheet' }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Form Responses 1",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "name": "Fetch Google Sheet Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json['Email Address'] || $json['email'] }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "Filter Valid Emails",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}/api/webhooks/n8n/assessment-callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_SHARED_SECRET || 'demo_shared_secret_2026' }}"
+            },
+            {
+              "name": "X-Idempotency-Key",
+              "value": "={{ 'gsheet-sync-' + ($json['Email Address'] || $json['email']) + '-' + ($json['Timestamp'] || $now.format('yyyyMMdd')) }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "candidateEmail",
+              "value": "={{ $json['Email Address'] || $json['email'] }}"
+            },
+            {
+              "name": "score",
+              "value": "={{ parseFloat($json['Score'] || $json['Quiz Score'] || '0') }}"
+            },
+            {
+              "name": "maxScore",
+              "value": "={{ parseFloat($json['Max Score'] || '100') }}"
+            },
+            {
+              "name": "source",
+              "value": "google_forms_sync"
+            },
+            {
+              "name": "rawPayload",
+              "value": "={{ $json }}"
+            }
+          ]
+        }
+      },
+      "name": "Post Result to App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Cron: Poll Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Fetch Google Sheet Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Google Sheet Rows": {
+      "main": [
+        [
+          {
+            "node": "Filter Valid Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Valid Emails": {
+      "main": [
+        [
+          {
+            "node": "Post Result to App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

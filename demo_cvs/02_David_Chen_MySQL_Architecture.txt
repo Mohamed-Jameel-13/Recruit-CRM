@@ -1,0 +1,30 @@
+DAVID CHEN
+Email: david.chen@example.com
+Phone: +1 (555) 345-6789
+Location: Seattle, WA | Remote
+LinkedIn: linkedin.com/in/david-chen-dev
+GitHub: github.com/david-chen
+
+PROFESSIONAL SUMMARY
+Senior Backend & Platform Engineer with 5 years of engineering experience specializing in high-performance transactional database architectures, scalable Node.js microservices, and modern frontend delivery. Deep expertise in relational SQL tuning, schema normalization, and resilient API contracts.
+
+TECHNICAL SKILLS
+- Programming: TypeScript, JavaScript, SQL, Python
+- Backend: Node.js, Fastify, Express, Microservices Architecture, Distributed Systems
+- Relational Databases: MySQL (InnoDB internals, query indexing, replication clustering, ACID transactions), Redis
+- Frontend: React, Redux, HTML5, CSS
+- DevOps & Tools: Docker, Linux, Git, CI/CD, AWS EC2 & RDS
+
+PROFESSIONAL EXPERIENCE
+Senior Backend Engineer | FinTech Horizons (2021 – Present)
+- Designed mission-critical ledger transaction engine processing $12M daily transactions using Node.js and MySQL.
+- Handled high-concurrency database connection pooling and deadlock resolution across replicated database nodes.
+- Designed internal administrative dashboards using React and TypeScript.
+- Containerized development and staging environments with Docker.
+
+Software Engineer | Nexa Solutions (2019 – 2021)
+- Developed REST APIs using TypeScript and Node.js.
+- Authored automated integration test suites and managed database migrations.
+
+EDUCATION
+B.S. in Software Engineering | University of Washington (2015 – 2019)

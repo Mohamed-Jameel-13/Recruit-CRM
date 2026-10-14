@@ -1,0 +1,29 @@
+SAMANTHA MILLER
+Email: samantha.miller@example.com
+Phone: +1 (555) 901-2345
+Location: Boston, MA | Remote
+LinkedIn: linkedin.com/in/samantha-miller-eng
+GitHub: github.com/smiller-cloud
+
+PROFESSIONAL SUMMARY
+Staff Full-Stack Cloud Engineer with 7 years of software development experience architecting mission-critical platforms. Expert in TypeScript, Node.js microservices, PostgreSQL schema architecture, React web portals, and Docker orchestration.
+
+TECHNICAL EXPERTISE
+- Languages: TypeScript, JavaScript, SQL
+- Backend: Node.js, Express, NestJS, System Architecture, Redis, Kafka
+- Databases: PostgreSQL, Redis, DynamoDB
+- Frontend: React, Next.js, Redux, Tailwind CSS
+- Cloud: Docker, Kubernetes, AWS, CI/CD
+
+PROFESSIONAL EXPERIENCE
+Staff Engineer | Beacon Health Technologies (2020 – Present)
+- Architected HIPAA-compliant telemedicine platform with TypeScript, Node.js, and PostgreSQL.
+- Implemented real-time audio/video consultations and event queues.
+- Containerized all internal workloads with Docker on AWS.
+
+Senior Full-Stack Developer | Verve Interactive (2017 – 2020)
+- Designed customer-facing portals in React and Next.js backed by Node.js APIs.
+
+EDUCATION
+M.S. in Computer Science | Northeastern University (2015 – 2017)
+B.S. in Computer Science | Boston University (2011 – 2015)

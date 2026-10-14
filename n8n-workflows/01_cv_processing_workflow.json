@@ -1,0 +1,146 @@
+{
+  "name": "CV Screener - 01 CV Document Processing & AI Screening",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cv-batch",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Batch Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "cv-screener-batch-trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.headers['x-n8n-secret'] || $json.headers['authorization'] }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "Verify Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.documents",
+        "options": {}
+      },
+      "name": "Item Lists: Each CV",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 1,
+      "position": [720, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}/api/screening/evaluate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_SHARED_SECRET || 'demo_shared_secret_2026' }}"
+            },
+            {
+              "name": "X-Idempotency-Key",
+              "value": "={{ 'n8n-screen-' + $json.id + '-' + $now.format('yyyyMMddHH') }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "applicationId",
+              "value": "={{ $json.application_id }}"
+            },
+            {
+              "name": "documentId",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {
+          "retry": {
+            "retry": true,
+            "maxTries": 3,
+            "waitBetweenTries": 2000
+          }
+        }
+      },
+      "name": "Screen Candidate Endpoint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [960, 240]
+    },
+    {
+      "parameters": {
+        "errorMessage": "Unauthorized Webhook Call: Missing or invalid secret."
+      },
+      "name": "Stop - Unauthorized",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [720, 420]
+    }
+  ],
+  "connections": {
+    "Batch Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Verify Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Secret": {
+      "main": [
+        [
+          {
+            "node": "Item Lists: Each CV",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Item Lists: Each CV": {
+      "main": [
+        [
+          {
+            "node": "Screen Candidate Endpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  }
+}
