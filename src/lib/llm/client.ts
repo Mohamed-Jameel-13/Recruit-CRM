@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export type LLMProviderId =
   | 'gemini'
@@ -209,15 +211,130 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     defaultBaseUrl: 'https://api.mycompany.com/v1',
     defaultModel: 'custom-model',
     popularModels: ['custom-model'],
-    requiresApiKey: true,
-    keyPlaceholder: 'Bearer token or custom key'
+    requiresApiKey: false,
+    keyPlaceholder: 'Bearer token or custom key (optional)'
   }
 ];
 
 const isTestEnv = typeof process !== 'undefined' && (!!process.env.VITEST || process.env.NODE_ENV === 'test');
-const CONFIG_PATH = isTestEnv
+const LOCAL_CONFIG_PATH = isTestEnv
   ? path.resolve(process.cwd(), '.data', 'test_llm_config.json')
   : path.resolve(process.cwd(), '.data', 'llm_config.json');
+const TMP_CONFIG_PATH = path.join(os.tmpdir(), isTestEnv ? 'test_llm_config.json' : 'recruitai_llm_config.json');
+
+// Supabase Storage Persistence Setup
+const BUCKET_NAME = 'system_config';
+const CONFIG_FILE_NAME = 'llm_config.json';
+let supabaseClientInstance: SupabaseClient | null = null;
+let bucketEnsured = false;
+
+function getSupabaseClient(): SupabaseClient | null {
+  if (isTestEnv) return null;
+  if (supabaseClientInstance) return supabaseClientInstance;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  if (!url || !key) return null;
+  try {
+    supabaseClientInstance = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+    return supabaseClientInstance;
+  } catch (err) {
+    console.error('Failed to initialize Supabase client for LLM config:', err);
+    return null;
+  }
+}
+
+async function ensureConfigBucket(supabase: SupabaseClient): Promise<boolean> {
+  if (bucketEnsured) return true;
+  try {
+    const { error } = await supabase.storage.createBucket(BUCKET_NAME, { public: false });
+    if (!error || error.statusCode === '409' || (error as any).code === 'BucketAlreadyExists' || error.message?.includes('already exists')) {
+      bucketEnsured = true;
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
+async function readFromSupabaseStorage(): Promise<Partial<LLMConfig> | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.storage.from(BUCKET_NAME).download(CONFIG_FILE_NAME);
+    if (error || !data) return null;
+    const text = await data.text();
+    if (!text || !text.trim()) return null;
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function writeToSupabaseStorage(config: LLMConfig): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+  try {
+    await ensureConfigBucket(supabase);
+    const { error } = await supabase.storage.from(BUCKET_NAME).upload(
+      CONFIG_FILE_NAME,
+      JSON.stringify(config, null, 2),
+      {
+        contentType: 'application/json',
+        upsert: true
+      }
+    );
+    if (error) {
+      console.warn('Notice: Failed uploading LLM config to Supabase Storage:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Notice: Could not persist LLM config to Supabase Storage:', err);
+    return false;
+  }
+}
+
+// In-Memory Fast Cache with TTL
+let memoryConfigCache: LLMConfig | null = null;
+let lastCacheSyncTime = 0;
+const CACHE_TTL_MS = 10000; // 10s TTL
+
+function readFromLocalDisk(): Partial<LLMConfig> | null {
+  for (const p of [LOCAL_CONFIG_PATH, TMP_CONFIG_PATH]) {
+    try {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, 'utf-8');
+        if (raw && raw.trim()) {
+          return JSON.parse(raw);
+        }
+      }
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+function writeToLocalDisk(config: LLMConfig): void {
+  // First attempt local project path
+  try {
+    const dir = path.dirname(LOCAL_CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(LOCAL_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  } catch {
+    // Read-only filesystem (serverless/Vercel)
+  }
+
+  // Also write to tmp as serverless instance fallback
+  try {
+    fs.writeFileSync(TMP_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  } catch {
+    // ignore
+  }
+}
 
 // Default fallback configuration
 export const DEFAULT_LLM_CONFIG: LLMConfig = {
@@ -229,20 +346,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
   maxTokens: 4096
 };
 
-export function getLLMConfig(): LLMConfig {
-  try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const data = fs.readFileSync(CONFIG_PATH, 'utf-8');
-      if (data && data.trim()) {
-        const parsed = JSON.parse(data);
-        return { ...DEFAULT_LLM_CONFIG, ...parsed };
-      }
-    }
-  } catch (err) {
-    console.error('Failed reading LLM configuration:', err);
-  }
-
-  // Check if GEMINI_API_KEY is configured in env
+function getEnvFallbackConfig(): LLMConfig {
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here') {
     return {
       provider: 'gemini',
@@ -253,13 +357,86 @@ export function getLLMConfig(): LLMConfig {
       maxTokens: 4096
     };
   }
-
   return DEFAULT_LLM_CONFIG;
 }
 
-export function saveLLMConfig(newConfig: Partial<LLMConfig> & { clearApiKey?: boolean }): LLMConfig {
-  const current = getLLMConfig();
-  
+/**
+ * Asynchronously retrieves current LLM configuration.
+ * Checks: 1) In-memory cache, 2) Supabase cloud storage, 3) Disk/Tmp, 4) Environment variables.
+ */
+export async function getLLMConfigAsync(forceRefresh: boolean = false): Promise<LLMConfig> {
+  const now = Date.now();
+  if (!forceRefresh && memoryConfigCache && (now - lastCacheSyncTime < CACHE_TTL_MS)) {
+    return memoryConfigCache;
+  }
+
+  // 1. Try Supabase Storage (cloud persistent across all serverless lambdas / redeployments)
+  if (!isTestEnv) {
+    const cloudConfig = await readFromSupabaseStorage();
+    if (cloudConfig && cloudConfig.provider) {
+      const merged: LLMConfig = { ...getEnvFallbackConfig(), ...cloudConfig };
+      memoryConfigCache = merged;
+      lastCacheSyncTime = now;
+      writeToLocalDisk(merged);
+      return merged;
+    }
+  }
+
+  // 2. Try Local File / /tmp
+  const diskConfig = readFromLocalDisk();
+  if (diskConfig && diskConfig.provider) {
+    const merged: LLMConfig = { ...getEnvFallbackConfig(), ...diskConfig };
+    memoryConfigCache = merged;
+    lastCacheSyncTime = now;
+    if (!isTestEnv) {
+      writeToSupabaseStorage(merged).catch(() => {});
+    }
+    return merged;
+  }
+
+  // 3. Fallback to Environment
+  const envConfig = getEnvFallbackConfig();
+  memoryConfigCache = envConfig;
+  lastCacheSyncTime = now;
+  return envConfig;
+}
+
+/**
+ * Synchronous LLM configuration getter for backwards compatibility.
+ */
+export function getLLMConfig(): LLMConfig {
+  if (memoryConfigCache) {
+    return memoryConfigCache;
+  }
+
+  const diskConfig = readFromLocalDisk();
+  if (diskConfig && diskConfig.provider) {
+    const merged: LLMConfig = { ...getEnvFallbackConfig(), ...diskConfig };
+    memoryConfigCache = merged;
+    lastCacheSyncTime = Date.now();
+    return merged;
+  }
+
+  const envConfig = getEnvFallbackConfig();
+  memoryConfigCache = envConfig;
+  lastCacheSyncTime = Date.now();
+
+  if (!isTestEnv) {
+    getLLMConfigAsync(true).catch(() => {});
+  }
+
+  return envConfig;
+}
+
+/**
+ * Asynchronously saves LLM configuration.
+ * Persists to in-memory cache, local/tmp disk, and Supabase cloud storage.
+ */
+export async function saveLLMConfigAsync(
+  newConfig: Partial<LLMConfig> & { clearApiKey?: boolean }
+): Promise<LLMConfig> {
+  const current = await getLLMConfigAsync();
+
   let apiKeyToSave = current.apiKey;
   if (newConfig.clearApiKey) {
     apiKeyToSave = '';
@@ -277,14 +454,48 @@ export function saveLLMConfig(newConfig: Partial<LLMConfig> & { clearApiKey?: bo
     apiKey: apiKeyToSave,
   };
 
-  try {
-    const dir = path.dirname(CONFIG_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(updated, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Failed saving LLM configuration:', err);
+  memoryConfigCache = updated;
+  lastCacheSyncTime = Date.now();
+
+  writeToLocalDisk(updated);
+
+  if (!isTestEnv) {
+    await writeToSupabaseStorage(updated);
+  }
+
+  return updated;
+}
+
+/**
+ * Synchronous save LLM configuration for backwards compatibility with tests.
+ */
+export function saveLLMConfig(newConfig: Partial<LLMConfig> & { clearApiKey?: boolean }): LLMConfig {
+  const current = getLLMConfig();
+
+  let apiKeyToSave = current.apiKey;
+  if (newConfig.clearApiKey) {
+    apiKeyToSave = '';
+  } else if (
+    newConfig.apiKey !== undefined &&
+    newConfig.apiKey !== '__KEEP_EXISTING__' &&
+    newConfig.apiKey.trim() !== ''
+  ) {
+    apiKeyToSave = newConfig.apiKey.trim();
+  }
+
+  const updated: LLMConfig = {
+    ...current,
+    ...newConfig,
+    apiKey: apiKeyToSave,
+  };
+
+  memoryConfigCache = updated;
+  lastCacheSyncTime = Date.now();
+
+  writeToLocalDisk(updated);
+
+  if (!isTestEnv) {
+    writeToSupabaseStorage(updated).catch(() => {});
   }
 
   return updated;
@@ -303,7 +514,8 @@ export async function callUniversalLLM(
   messages: ChatMessage[],
   configOverrides?: Partial<LLMConfig>
 ): Promise<{ content: string; model: string; provider: string; latencyMs: number }> {
-  const config = { ...getLLMConfig(), ...configOverrides };
+  const baseConfig = await getLLMConfigAsync();
+  const config = { ...baseConfig, ...configOverrides };
   const startTime = Date.now();
   const activeModel = config.model || 'gemini-2.5-flash';
 
@@ -557,7 +769,8 @@ export async function callUniversalLLM(
 export async function fetchAvailableModels(
   testConfig?: Partial<LLMConfig>
 ): Promise<{ success: boolean; models: string[]; error?: string }> {
-  const config = { ...getLLMConfig(), ...testConfig };
+  const baseConfig = await getLLMConfigAsync();
+  const config = { ...baseConfig, ...testConfig };
   const provider = config.provider;
   const baseUrl = config.baseUrl.trim();
   const apiKey = config.apiKey.trim();
@@ -616,6 +829,9 @@ export async function fetchAvailableModels(
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    if (config.customHeaders) {
+      Object.assign(headers, config.customHeaders);
     }
 
     const res = await fetch(modelsEndpoint, {

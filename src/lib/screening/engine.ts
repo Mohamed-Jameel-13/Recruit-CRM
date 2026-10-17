@@ -289,14 +289,26 @@ export async function screenCandidateWithAI(
   modelName: string;
   isRuleBasedFallback: boolean;
 }> {
-  const { callUniversalLLM, getLLMConfig } = await import('@/lib/llm/client');
-  const config = getLLMConfig();
+  const { callUniversalLLM, getLLMConfigAsync } = await import('@/lib/llm/client');
+  const config = await getLLMConfigAsync();
 
-  // If local endpoint (Ollama/LM Studio) or key is provided
-  const hasLocalEndpoint = config.baseUrl.includes('localhost') || config.baseUrl.includes('127.0.0.1');
-  const hasAuth = !!config.apiKey && config.apiKey.trim() !== 'your_gemini_api_key_here';
+  // If local endpoint, tunnel, custom API, or key/headers are provided
+  const isLocalOrCustom =
+    config.provider === 'custom' ||
+    config.provider === 'ollama' ||
+    config.provider === 'lmstudio' ||
+    config.provider === 'openai_compatible' ||
+    config.baseUrl.includes('localhost') ||
+    config.baseUrl.includes('127.0.0.1') ||
+    config.baseUrl.includes('trycloudflare.com') ||
+    config.baseUrl.includes('ngrok') ||
+    config.baseUrl.includes('loca.lt');
 
-  if (!hasLocalEndpoint && !hasAuth) {
+  const hasAuth =
+    (!!config.apiKey && config.apiKey.trim() !== 'your_gemini_api_key_here') ||
+    (config.customHeaders && Object.keys(config.customHeaders).length > 0);
+
+  if (!isLocalOrCustom && !hasAuth) {
     // Graceful, clearly labeled fallback when no LLM endpoint or key is configured
     const ruleBasedResult = evaluateCandidateSemantics(
       extractedText,

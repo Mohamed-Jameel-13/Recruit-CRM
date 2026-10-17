@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { callUniversalLLM, getLLMConfig } from '@/lib/llm/client';
+import { callUniversalLLM, getLLMConfigAsync } from '@/lib/llm/client';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const currentConfig = getLLMConfig();
+    const currentConfig = await getLLMConfigAsync();
 
     // If apiKey is omitted or blank or '__KEEP_EXISTING__', use currently configured key
     let apiKey = body.apiKey;

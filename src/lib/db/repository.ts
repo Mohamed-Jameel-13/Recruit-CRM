@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import { createClient } from '@supabase/supabase-js';
 // Force reload repository module
 import { 
   Job, 
@@ -25,6 +27,7 @@ const isTestEnv = typeof process !== 'undefined' && (!!process.env.VITEST || pro
 const STORE_FILE = isTestEnv
   ? path.join(DATA_DIR, 'test_recruitment_store.json')
   : path.join(DATA_DIR, 'recruitment_store.json');
+const TMP_STORE_FILE = path.join(os.tmpdir(), isTestEnv ? 'test_recruitment_store.json' : 'recruitai_recruitment_store.json');
 
 export interface RecruitmentStore {
   jobs: Job[];
@@ -367,11 +370,46 @@ const DEFAULT_INTERVIEWER: Interviewer = {
 let memoryStore: RecruitmentStore | null = null;
 let lastStoreMtime: number = 0;
 
-function getStore(): RecruitmentStore {
+let cloudStoreHydrated = false;
+async function hydrateStoreFromSupabase(): Promise<void> {
+  if (cloudStoreHydrated || isTestEnv) return;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return;
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data, error } = await supabase.storage.from('system_config').download('recruitment_store.json');
+    if (!error && data) {
+      const text = await data.text();
+      if (text && text.trim()) {
+        const parsed = JSON.parse(text);
+        if (parsed.jobs && Array.isArray(parsed.jobs)) {
+          memoryStore = parsed;
+          cloudStoreHydrated = true;
+          try { fs.writeFileSync(TMP_STORE_FILE, text, 'utf-8'); } catch {}
+        }
+      }
     }
+  } catch {}
+}
+
+async function syncStoreToSupabase(store: RecruitmentStore): Promise<void> {
+  if (isTestEnv) return;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return;
+  try {
+    const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+    await supabase.storage.from('system_config').upload('recruitment_store.json', JSON.stringify(store, null, 2), {
+      contentType: 'application/json',
+      upsert: true
+    });
+  } catch {}
+}
+
+function getStore(): RecruitmentStore {
+  // Check primary local store file
+  try {
     if (fs.existsSync(STORE_FILE)) {
       const stats = fs.statSync(STORE_FILE);
       if (!memoryStore || stats.mtimeMs > lastStoreMtime) {
@@ -393,11 +431,30 @@ function getStore(): RecruitmentStore {
       }
     }
   } catch {
-    // fallback to initial
+    // try fallback
   }
+
+  // Check serverless /tmp store fallback
+  try {
+    if (fs.existsSync(TMP_STORE_FILE)) {
+      const data = fs.readFileSync(TMP_STORE_FILE, 'utf-8');
+      if (data && data.trim()) {
+        const parsed = JSON.parse(data);
+        if (parsed.jobs && Array.isArray(parsed.jobs)) {
+          memoryStore = parsed;
+          return memoryStore!;
+        }
+      }
+    }
+  } catch {}
 
   if (memoryStore) {
     return memoryStore;
+  }
+
+  // Trigger cloud hydration for serverless cold-starts
+  if (!cloudStoreHydrated && !isTestEnv) {
+    hydrateStoreFromSupabase().catch(() => {});
   }
 
   // Initialize fresh store
@@ -453,8 +510,18 @@ function saveStore(store: RecruitmentStore): void {
     try {
       lastStoreMtime = fs.statSync(STORE_FILE).mtimeMs;
     } catch {}
-  } catch (err) {
-    console.error('Failed writing recruitment store:', err);
+  } catch {
+    // Read-only filesystem in serverless
+  }
+
+  // Always write to tmp as serverless instance fallback
+  try {
+    fs.writeFileSync(TMP_STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch {}
+
+  // Sync to Supabase Storage in cloud
+  if (!isTestEnv) {
+    syncStoreToSupabase(store).catch(() => {});
   }
 }
 

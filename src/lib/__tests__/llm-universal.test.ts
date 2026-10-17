@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getLLMConfig, saveLLMConfig, PROVIDER_PRESETS, fetchAvailableModels } from '../llm/client';
+import {
+  getLLMConfig,
+  saveLLMConfig,
+  getLLMConfigAsync,
+  saveLLMConfigAsync,
+  PROVIDER_PRESETS,
+  fetchAvailableModels
+} from '../llm/client';
 
 describe('Universal LLM Configuration & Client Suite', () => {
   beforeEach(() => {
@@ -43,6 +50,55 @@ describe('Universal LLM Configuration & Client Suite', () => {
     const retrieved = getLLMConfig();
     expect(retrieved.provider).toBe('groq');
     expect(retrieved.model).toBe('llama-3.3-70b-versatile');
+  });
+
+  it('should save and retrieve custom LLM configuration asynchronously with custom headers', async () => {
+    const updated = await saveLLMConfigAsync({
+      provider: 'custom',
+      baseUrl: 'https://custom-tunnel.trycloudflare.com/v1',
+      model: 'qwen2.5:14b',
+      apiKey: 'custom-bearer-or-header-key',
+      temperature: 0.15,
+      maxTokens: 2048,
+      customHeaders: {
+        'x-custom-tenant': 'test-tenant-1',
+        'Authorization': 'Custom custom-bearer-or-header-key'
+      }
+    });
+
+    expect(updated.provider).toBe('custom');
+    expect(updated.baseUrl).toBe('https://custom-tunnel.trycloudflare.com/v1');
+    expect(updated.model).toBe('qwen2.5:14b');
+    expect(updated.apiKey).toBe('custom-bearer-or-header-key');
+    expect(updated.customHeaders?.['x-custom-tenant']).toBe('test-tenant-1');
+
+    const loaded = await getLLMConfigAsync(true);
+    expect(loaded.provider).toBe('custom');
+    expect(loaded.baseUrl).toBe('https://custom-tunnel.trycloudflare.com/v1');
+    expect(loaded.model).toBe('qwen2.5:14b');
+    expect(loaded.apiKey).toBe('custom-bearer-or-header-key');
+    expect(loaded.customHeaders?.['x-custom-tenant']).toBe('test-tenant-1');
+  });
+
+  it('should preserve API key when __KEEP_EXISTING__ is sent', async () => {
+    await saveLLMConfigAsync({
+      provider: 'custom',
+      baseUrl: 'https://tunnel-2.trycloudflare.com/v1',
+      apiKey: 'preserved-secret-key-4321',
+      model: 'llama3.3:70b'
+    });
+
+    const updated = await saveLLMConfigAsync({
+      model: 'deepseek-r1:14b',
+      apiKey: '__KEEP_EXISTING__'
+    });
+
+    expect(updated.model).toBe('deepseek-r1:14b');
+    expect(updated.apiKey).toBe('preserved-secret-key-4321');
+
+    const loaded = await getLLMConfigAsync();
+    expect(loaded.apiKey).toBe('preserved-secret-key-4321');
+    expect(loaded.model).toBe('deepseek-r1:14b');
   });
 
   it('should NEVER wipe existing API key when saving partial settings without new key', () => {

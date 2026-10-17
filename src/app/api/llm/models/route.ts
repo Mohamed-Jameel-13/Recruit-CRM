@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAvailableModels, getLLMConfig } from '@/lib/llm/client';
+import { fetchAvailableModels, getLLMConfigAsync } from '@/lib/llm/client';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const currentConfig = getLLMConfig();
+    const currentConfig = await getLLMConfigAsync();
 
     let apiKey = body.apiKey;
     if (apiKey === undefined || apiKey === null || apiKey === '' || apiKey === '__KEEP_EXISTING__') {
@@ -15,7 +17,8 @@ export async function POST(req: NextRequest) {
       provider: body.provider || currentConfig.provider,
       baseUrl: body.baseUrl || currentConfig.baseUrl,
       apiKey: apiKey,
-      model: body.model || currentConfig.model
+      model: body.model || currentConfig.model,
+      customHeaders: body.customHeaders || currentConfig.customHeaders
     });
 
     return NextResponse.json(result);

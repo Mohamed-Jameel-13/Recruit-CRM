@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLLMConfig, saveLLMConfig, PROVIDER_PRESETS } from '@/lib/llm/client';
+import { getLLMConfigAsync, saveLLMConfigAsync, PROVIDER_PRESETS } from '@/lib/llm/client';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const config = getLLMConfig();
+  const config = await getLLMConfigAsync(true);
   
   // Format masked key for UI display (e.g. AIza••••••••k3Q)
   let maskedKey = '';
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const updated = saveLLMConfig({
+    const updated = await saveLLMConfigAsync({
       provider: body.provider,
       baseUrl: body.baseUrl?.trim(),
       apiKey: body.apiKey,
@@ -62,6 +64,7 @@ export async function POST(req: NextRequest) {
         model: updated.model,
         temperature: updated.temperature,
         maxTokens: updated.maxTokens,
+        customHeaders: updated.customHeaders || {},
         apiKeyMasked: maskedKey,
         hasKey: !!updated.apiKey
       }

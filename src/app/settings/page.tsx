@@ -107,9 +107,38 @@ export default function SettingsPage() {
         if (currentPreset?.popularModels) {
           setAvailableModels(currentPreset.popularModels);
         }
+        if (c.provider === 'custom' || (currentPreset && !currentPreset.popularModels.includes(c.model))) {
+          setIsCustomModel(true);
+        }
+
+        // Cache to browser localStorage for instant UI recovery
+        try {
+          localStorage.setItem('recruitai_llm_config', JSON.stringify({
+            provider: c.provider,
+            baseUrl: c.baseUrl,
+            model: c.model,
+            temperature: c.temperature,
+            maxTokens: c.maxTokens,
+            customHeaders: c.customHeaders
+          }));
+        } catch {}
       }
     } catch (err) {
       console.error('Failed reading LLM config:', err);
+      // Fallback: restore from localStorage if server fetch failed
+      try {
+        const localStr = localStorage.getItem('recruitai_llm_config');
+        if (localStr) {
+          const c = JSON.parse(localStr);
+          if (c.provider) setProvider(c.provider);
+          if (c.baseUrl) setBaseUrl(c.baseUrl);
+          if (c.model) setModel(c.model);
+          if (c.temperature !== undefined) setTemperature(c.temperature);
+          if (c.maxTokens) setMaxTokens(c.maxTokens);
+          if (c.customHeaders) setCustomHeadersStr(JSON.stringify(c.customHeaders, null, 2));
+          if (c.provider === 'custom') setIsCustomModel(true);
+        }
+      } catch {}
     }
   }
 
@@ -119,11 +148,11 @@ export default function SettingsPage() {
     setBaseUrl(preset.defaultBaseUrl);
     setModel(preset.defaultModel);
     setAvailableModels(preset.popularModels);
-    setIsCustomModel(false);
+    setIsCustomModel(preset.id === 'custom');
     setTestResult(null);
 
     // If switching to local Ollama/LM Studio without key, clear key state
-    if (!preset.requiresApiKey) {
+    if (!preset.requiresApiKey && preset.id !== 'custom') {
       setApiKey('');
     }
   }
@@ -241,6 +270,8 @@ export default function SettingsPage() {
 
       if (apiKey.trim()) {
         payload.apiKey = apiKey.trim();
+      } else if (hasKey) {
+        payload.apiKey = '__KEEP_EXISTING__';
       }
 
       const res = await fetch('/api/llm/config', {
@@ -256,7 +287,22 @@ export default function SettingsPage() {
         setHasKey(data.config.hasKey);
         setApiKeyMasked(data.config.apiKeyMasked);
         setApiKey(''); // clear dirty plain input
+        if (data.config.customHeaders && Object.keys(data.config.customHeaders).length > 0) {
+          setCustomHeadersStr(JSON.stringify(data.config.customHeaders, null, 2));
+        }
       }
+
+      // Persist to browser localStorage
+      try {
+        localStorage.setItem('recruitai_llm_config', JSON.stringify({
+          provider,
+          baseUrl,
+          model,
+          temperature,
+          maxTokens,
+          customHeaders
+        }));
+      } catch {}
 
       toast.success(`Saved! Active Model: ${model} on ${provider}`, 'Configuration Persisted');
     } catch (err: unknown) {
