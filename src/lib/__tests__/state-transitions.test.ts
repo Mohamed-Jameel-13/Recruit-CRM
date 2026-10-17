@@ -6,6 +6,7 @@ describe('Recruitment Pipeline State Machine & Human Approval', () => {
   let testAppId: string;
 
   beforeEach(() => {
+    db.resetData();
     const job = db.createJob({
       organization_id: 'a0000000-0000-0000-0000-000000000001',
       title: 'DevOps Engineer',

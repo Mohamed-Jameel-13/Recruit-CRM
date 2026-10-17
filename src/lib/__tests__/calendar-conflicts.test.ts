@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '../db/repository';
 
 describe('Interview Scheduling & Conflict Prevention', () => {
   const interviewerId = 'e0000000-0000-0000-0000-000000000001';
   const interviewerName = 'Sarah Connor';
+
+  beforeEach(() => {
+    db.resetData();
+  });
 
   it('should successfully book an interview when no time conflict exists', () => {
     const tomorrow10am = new Date(Date.now() + 24 * 60 * 60 * 1000);

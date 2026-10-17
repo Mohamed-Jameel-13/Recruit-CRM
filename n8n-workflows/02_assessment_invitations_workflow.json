@@ -56,17 +56,17 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}/api/assessments/status-update",
+        "url": "https://phentermine-assessed-exclude-she.trycloudflare.com/api/assessments/status-update",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "X-N8N-Secret",
-              "value": "={{ $env.N8N_SHARED_SECRET || 'demo_shared_secret_2026' }}"
+              "value": "demo_shared_secret_2026"
             },
             {
               "name": "X-Idempotency-Key",
-              "value": "={{ 'invite-sent-' + $json.assignment_id }}"
+              "value": "={{ 'invite-sent-' + ($('[02] Split Invitations').item.json.assignment_id || $('Split Invitations').item.json.assignment_id || $json.assignment_id) }}"
             }
           ]
         },
@@ -75,7 +75,7 @@
           "parameters": [
             {
               "name": "assignmentId",
-              "value": "={{ $json.assignment_id }}"
+              "value": "={{ $('[02] Split Invitations').item.json.assignment_id || $('Split Invitations').item.json.assignment_id || $json.assignment_id }}"
             },
             {
               "name": "status",

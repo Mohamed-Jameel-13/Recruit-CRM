@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+// Force reload repository module
 import { 
   Job, 
   Candidate, 
@@ -12,12 +13,18 @@ import {
   ImportBatch, 
   Interviewer,
   RetentionDeletionRequest,
-  ScreeningCriteria
+  ScreeningCriteria,
+  SentEmail,
+  AssessmentConfig
 } from '@/types/database';
-import { getAdminClient } from '@/lib/supabase/admin';
+import { dispatchRealSmtpEmail } from '@/lib/email/mailer';
+import { generateMeetLink } from '@/lib/calendar/meet';
 
 const DATA_DIR = path.resolve(process.cwd(), '.data');
-const STORE_FILE = path.join(DATA_DIR, 'recruitment_store.json');
+const isTestEnv = typeof process !== 'undefined' && (!!process.env.VITEST || process.env.NODE_ENV === 'test');
+const STORE_FILE = isTestEnv
+  ? path.join(DATA_DIR, 'test_recruitment_store.json')
+  : path.join(DATA_DIR, 'recruitment_store.json');
 
 export interface RecruitmentStore {
   jobs: Job[];
@@ -32,6 +39,9 @@ export interface RecruitmentStore {
   import_batches: ImportBatch[];
   audit_logs: AuditLog[];
   retention_requests: RetentionDeletionRequest[];
+  sent_emails: SentEmail[];
+  assessment_config?: AssessmentConfig;
+  assessment_configs: AssessmentConfig[];
 }
 
 // Initial baseline mock data matching seed.sql
@@ -91,6 +101,243 @@ const DEFAULT_CRITERIA: ScreeningCriteria = {
   updated_at: new Date().toISOString()
 };
 
+const DEFAULT_ASSESSMENT_CONFIGS: AssessmentConfig[] = [
+  {
+    id: 'cfg-fullstack',
+    role: 'Senior Full-Stack Cloud Engineer',
+    mode: 'INBUILT',
+    external_url: '',
+    title: 'Senior Full-Stack Cloud Competency Challenge',
+    description: 'Evaluates microservice architecture, PostgreSQL locking, Kubernetes rolling rollouts, and distributed rate limiting.',
+    duration_minutes: 45,
+    pass_threshold_percentage: 70,
+    calendly_link: 'https://calendly.com',
+    anti_cheat_enabled: true,
+    webcam_required: false,
+    screen_share_required: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    questions: [
+      {
+        id: 'q_fs_1',
+        type: 'mcq',
+        title: 'System Architecture & Idempotency',
+        category: 'Architecture',
+        description: 'Which pattern ensures zero dropped messages and idempotent processing in an API gateway handling 10,000 req/sec webhooks?',
+        points: 25,
+        options: [
+          'A) Store transactions in a local in-memory array and flush to database every hour',
+          'B) Compute SHA-256 payload hash as idempotency key, cache in Redis with TTL, and process via partitioned Kafka consumer groups with DLQ',
+          'C) Rely solely on auto-incrementing database primary keys with client-side retry disabled',
+          'D) Write directly to PostgreSQL with synchronous disk fsync on every HTTP request'
+        ],
+        correct_option_index: 1,
+        explanation: 'SHA-256 payload hashing provides deterministic request identification. Coupled with Redis TTL caching for sub-millisecond deduplication and Kafka partitioned consumer groups with dead-letter queue (DLQ) retry backoff, this pattern guarantees zero message loss and true idempotency at scale.'
+      },
+      {
+        id: 'q_fs_2',
+        type: 'mcq',
+        title: 'Database Concurrency & ACID Locking',
+        category: 'Database',
+        description: 'In a high-concurrency ledger service, which PostgreSQL strategy effectively eliminates race conditions and phantom reads without blocking read queries?',
+        points: 25,
+        options: [
+          'A) Execute raw queries inside an application-level mutex lock across all server instances',
+          'B) Increase max_connections to 5,000 in postgresql.conf without modifying isolation levels',
+          'C) Utilize PostgreSQL REPEATABLE READ isolation or explicit SELECT FOR UPDATE row-level locking within atomic ACID transactions',
+          'D) Switch the database engine to READ UNCOMMITTED to allow non-blocking dirty reads'
+        ],
+        correct_option_index: 2,
+        explanation: 'REPEATABLE READ guarantees that all queries within the transaction view data from the same snapshot. SELECT FOR UPDATE acquires an exclusive row-level lock on the targeted balance rows without blocking concurrent read-only queries.'
+      },
+      {
+        id: 'q_fs_3',
+        type: 'mcq',
+        title: 'Kubernetes Resiliency & Zero-Downtime Rollouts',
+        category: 'DevOps',
+        description: 'How do you guarantee continuous 100% capacity and zero dropped in-flight requests during rolling deployments in Kubernetes?',
+        points: 25,
+        options: [
+          'A) Configure rollingUpdate with maxSurge: 25%, maxUnavailable: 0, HTTP readiness probes, and graceful SIGTERM preStop hooks',
+          'B) Terminate all existing pods at once to prevent version skew across microservices',
+          'C) Deploy all pods onto a single node to avoid inter-node networking overhead',
+          'D) Disable health check probes during deployments to prevent premature pod restarts'
+        ],
+        correct_option_index: 0,
+        explanation: 'Setting maxUnavailable: 0 ensures that Kubernetes never terminates existing pods until new pods pass their readiness probes. PreStop hooks allow in-flight HTTP connections to complete before SIGKILL.'
+      },
+      {
+        id: 'q_fs_4',
+        type: 'subjective',
+        title: 'Distributed Rate Limiter & Token Bucket Architecture',
+        category: 'Architecture',
+        description: 'Design a distributed rate limiter protecting microservices from DDoS and noisy neighbors. Explain the data structures (e.g. Redis ZSET or sliding window), how you prevent race conditions, what headers you return (RFC 6585), and your fail-open/fail-closed strategy if Redis encounters network partitioning.',
+        points: 25,
+        placeholder: 'Explain Redis sliding window / token bucket, atomic Lua scripts, standard HTTP headers (429, Retry-After), and fallback resilience...',
+        rubric: 'Candidate must specify: (1) Redis sorted sets or token bucket with atomic Lua scripts to prevent race conditions; (2) HTTP 429 status code with X-RateLimit-Limit, X-RateLimit-Remaining, and Retry-After headers; (3) Fallback strategy such as local in-memory token bucket or fail-open with alerting during Redis partition.',
+        sample_pass_answer: 'We implement a sliding window log counter using Redis with atomic Lua scripting. Each incoming request records the current timestamp in a Redis sorted set (ZSET) keyed by client IP or API token. The Lua script trims timestamps older than (now - window_size), checks ZCARD against the allowed threshold, and if under limit, adds the timestamp with an EXPIRE TTL. If exceeded, it immediately responds with HTTP 429 Too Many Requests including RFC headers: X-RateLimit-Limit, X-RateLimit-Remaining: 0, and Retry-After. If Redis is temporarily unreachable, we fail-open with local in-memory token buckets to maintain service availability while alerting SREs.',
+        sample_fail_answer: 'I would just increment a variable in the Node.js server memory and restart the server if it gets too high.'
+      }
+    ]
+  },
+  {
+    id: 'cfg-backend',
+    role: 'Senior Backend Systems Engineer',
+    mode: 'INBUILT',
+    external_url: '',
+    title: 'Distributed Systems & Backend Engineering Challenge',
+    description: 'High-scale backend evaluation covering Kafka event streams, database sharding/isolation, and high-throughput cache concurrency.',
+    duration_minutes: 60,
+    pass_threshold_percentage: 75,
+    calendly_link: 'https://calendly.com',
+    anti_cheat_enabled: true,
+    webcam_required: false,
+    screen_share_required: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    questions: [
+      {
+        id: 'q_be_1',
+        type: 'mcq',
+        title: 'Kafka Partition Rebalance & Consumer Lag',
+        category: 'Distributed Systems',
+        description: 'In an event-driven system with 64 Kafka partitions, how do you eliminate stop-the-world partition rebalances during rolling container restarts?',
+        points: 25,
+        options: [
+          'A) Set partition.assignment.strategy to CooperativeStickyAssignor and configure static membership using group.instance.id',
+          'B) Decrease session.timeout.ms to 100 milliseconds across all consumers',
+          'C) Route all 64 partitions to a single consumer instance without consumer groups',
+          'D) Disable auto-commit and commit offsets synchronously after every individual message'
+        ],
+        correct_option_index: 0,
+        explanation: 'CooperativeStickyAssignor implements incremental cooperative rebalancing, allowing unaffected consumers to continue processing while migrating partitions. Static membership (group.instance.id) prevents rebalancing altogether if a restarted pod returns within session timeout.'
+      },
+      {
+        id: 'q_be_2',
+        type: 'mcq',
+        title: 'Database Sharding & Cross-Shard Distributed Transactions',
+        category: 'Database Architecture',
+        description: 'When sharding an orders database across multiple PostgreSQL instances, how do you handle cross-shard atomic transfers without 2-Phase Commit (2PC) bottlenecks?',
+        points: 25,
+        options: [
+          'A) Implement the Saga pattern with compensating transactions and transactional outbox table publishing events via CDC',
+          'B) Execute synchronous distributed deadlocks using client-side sleep timers',
+          'C) Place all database tables in a single unindexed foreign table wrapper (postgres_fdw)',
+          'D) Disable ACID isolation and let eventual consistency overwrite conflicting ledger records'
+        ],
+        correct_option_index: 0,
+        explanation: 'The Saga pattern breaks distributed transactions into local ACID transactions coordinated via events or orchestration. The Transactional Outbox pattern guarantees reliable event publishing via Change Data Capture (CDC).'
+      },
+      {
+        id: 'q_be_3',
+        type: 'coding',
+        title: 'In-Memory Sliding Window Rate Limiter',
+        category: 'Coding & Algorithms',
+        description: 'Implement a sliding window rate limiter class in TypeScript/JavaScript. The class should take `maxRequests` and `windowSizeMs` in its constructor, and provide an `allowRequest(clientId: string): boolean` method that tracks timestamps in O(1) or O(N) where N is requests within the current window.',
+        points: 25,
+        language: 'typescript',
+        starter_code: `class SlidingWindowRateLimiter {\n  private maxRequests: number;\n  private windowSizeMs: number;\n  private clientLogs: Map<string, number[]>;\n\n  constructor(maxRequests: number, windowSizeMs: number) {\n    this.maxRequests = maxRequests;\n    this.windowSizeMs = windowSizeMs;\n    this.clientLogs = new Map();\n  }\n\n  allowRequest(clientId: string): boolean {\n    const now = Date.now();\n    // TODO: Clean up expired timestamps and evaluate allowance\n    return true;\n  }\n}`,
+        test_cases: [
+          { input: 'maxRequests: 3, windowSizeMs: 1000, 3 rapid calls', expected_output: 'true, true, true', description: 'Allows requests under the limit' },
+          { input: 'maxRequests: 3, windowSizeMs: 1000, 4th immediate call', expected_output: 'false', description: 'Blocks request exceeding limit' }
+        ],
+        rubric: 'Must correctly prune timestamps older than (now - windowSizeMs), reject when count >= maxRequests, and add current timestamp when permitted.',
+        sample_pass_answer: `class SlidingWindowRateLimiter {\n  private maxRequests: number;\n  private windowSizeMs: number;\n  private clientLogs: Map<string, number[]>;\n\n  constructor(maxRequests: number, windowSizeMs: number) {\n    this.maxRequests = maxRequests;\n    this.windowSizeMs = windowSizeMs;\n    this.clientLogs = new Map();\n  }\n\n  allowRequest(clientId: string): boolean {\n    const now = Date.now();\n    const windowStart = now - this.windowSizeMs;\n    let timestamps = this.clientLogs.get(clientId) || [];\n    timestamps = timestamps.filter(ts => ts > windowStart);\n\n    if (timestamps.length >= this.maxRequests) {\n      this.clientLogs.set(clientId, timestamps);\n      return false;\n    }\n\n    timestamps.push(now);\n    this.clientLogs.set(clientId, timestamps);\n    return true;\n  }\n}`
+      },
+      {
+        id: 'q_be_4',
+        type: 'subjective',
+        title: 'Global Distributed Session & Cache Synchronization',
+        category: 'System Design',
+        description: 'Design a globally distributed session store across US-East, EU-Central, and AP-Southeast regions with sub-50ms latency and high availability. Detail conflict resolution, caching layers, and how you prevent cache stampedes (dog-piling).',
+        points: 25,
+        placeholder: 'Detail regional Redis clusters, active-active replication (CRDTs), JWT stateless authentication vs stateful tokens, probabilistic early expiration (XFetch)...',
+        rubric: 'Must cover: (1) Regional edge caching / active-active Redis with Conflict-free Replicated Data Types (CRDTs) or centralized master with local read replicas; (2) Cache stampede prevention (mutex locking, singleflight, or probabilistic early recomputation / XFetch); (3) Token invalidation propagation via Redis Pub/Sub or Kafka.',
+        sample_pass_answer: 'We employ a hybrid architecture using short-lived asymmetric JWTs (15 min) for stateless regional verification, backed by regional Redis clusters with active-active replication using CRDTs for revocation lists and session metadata. To prevent cache stampedes under heavy traffic, we implement the XFetch probabilistic early expiration algorithm (optimal early recomputation before TTL expires) and singleflight deduplication on cache misses.'
+      }
+    ]
+  },
+  {
+    id: 'cfg-devops',
+    role: 'DevOps & SRE Specialist',
+    mode: 'INBUILT',
+    external_url: '',
+    title: 'Cloud Infrastructure & SRE Technical Challenge',
+    description: 'Production infrastructure assessment covering Kubernetes topology spread, zero-downtime Canary deployments, and Terraform drift.',
+    duration_minutes: 45,
+    pass_threshold_percentage: 70,
+    calendly_link: 'https://calendly.com',
+    anti_cheat_enabled: true,
+    webcam_required: false,
+    screen_share_required: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    questions: [
+      {
+        id: 'q_do_1',
+        type: 'mcq',
+        title: 'Kubernetes Pod Disruption Budgets & Drain Grace',
+        category: 'Kubernetes',
+        description: 'When performing a node pool rolling upgrade in production, how do you prevent simultaneous outage of stateful Kafka pods during `kubectl drain`?',
+        points: 25,
+        options: [
+          'A) Define PodDisruptionBudget with maxUnavailable: 1 and configure topologySpreadConstraints across zone topology keys',
+          'B) Use --force --ignore-daemonsets on kubectl drain without preStop hooks',
+          'C) Increase replica count to 100 on each single node',
+          'D) Delete all PVCs prior to draining to speed up unmounting'
+        ],
+        correct_option_index: 0,
+        explanation: 'A PodDisruptionBudget (PDB) with maxUnavailable: 1 guarantees the eviction API will block if more than 1 pod is unavailable, preventing quorum loss in quorum-based clusters like Kafka or etcd.'
+      },
+      {
+        id: 'q_do_2',
+        type: 'mcq',
+        title: 'Terraform State Locking & CI/CD Concurrency',
+        category: 'Infrastructure as Code',
+        description: 'In an automated CI/CD pipeline running multiple concurrent git commits, what mechanism prevents corrupting shared Terraform state?',
+        points: 25,
+        options: [
+          'A) Remote backend with state locking (e.g., AWS S3 with DynamoDB lock table or Terraform Cloud state lock)',
+          'B) Storing terraform.tfstate in the git repository with auto-merge enabled',
+          'C) Disabling state files completely using terraform -refresh=false',
+          'D) Running terraform apply simultaneously on all developer laptops'
+        ],
+        correct_option_index: 0,
+        explanation: 'Remote backend locking (such as DynamoDB lock table on S3 or native backend lock) creates an atomic mutex on state file operations, rejecting conflicting runs with lock errors.'
+      },
+      {
+        id: 'q_do_3',
+        type: 'coding',
+        title: 'Resilient Exponential Backoff with Full Jitter',
+        category: 'Reliability Engineering',
+        description: 'Implement a resilient retry function `retryWithBackoff<T>(fn: () => Promise<T>, maxRetries: number, baseDelayMs: number, maxDelayMs: number): Promise<T>` using Exponential Backoff with Full Jitter (AWS Architecture recommendation) to prevent retry storms against downstream APIs.',
+        points: 25,
+        language: 'typescript',
+        starter_code: `async function retryWithBackoff<T>(\n  fn: () => Promise<T>,\n  maxRetries: number = 3,\n  baseDelayMs: number = 100,\n  maxDelayMs: number = 2000\n): Promise<T> {\n  // TODO: Implement exponential backoff with full jitter\n  return fn();\n}`,
+        test_cases: [
+          { input: 'fn resolves immediately', expected_output: 'resolves value without retry', description: 'Immediate success' },
+          { input: 'fn fails twice then succeeds', expected_output: 'resolves value after 2 retries with jitter delay', description: 'Recovers on retry' }
+        ],
+        rubric: 'Must calculate delay = Math.random() * Math.min(maxDelayMs, baseDelayMs * 2 ** attempt), wait using setTimeout promise, and retry up to maxRetries.',
+        sample_pass_answer: `async function retryWithBackoff<T>(\n  fn: () => Promise<T>,\n  maxRetries: number = 3,\n  baseDelayMs: number = 100,\n  maxDelayMs: number = 2000\n): Promise<T> {\n  let attempt = 0;\n  while (true) {\n    try {\n      return await fn();\n    } catch (err) {\n      if (attempt >= maxRetries) throw err;\n      const expDelay = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, attempt));\n      const jitterDelay = Math.random() * expDelay;\n      await new Promise(resolve => setTimeout(resolve, jitterDelay));\n      attempt++;\n    }\n  }\n}`
+      },
+      {
+        id: 'q_do_4',
+        type: 'subjective',
+        title: 'Multi-Region Disaster Recovery & Automated Failover',
+        category: 'Disaster Recovery',
+        description: 'Architect an automated Active-Active multi-region disaster recovery strategy across AWS us-east-1 and eu-west-1. Detail DNS routing, health checks, database cross-region replication latency, and split-brain mitigation.',
+        points: 25,
+        placeholder: 'Detail Route 53 latency/failover routing, Aurora Global Database, continuous synthetic probes, and quorum-based split-brain fencing...',
+        rubric: 'Candidate must specify: (1) Route 53 health checks with latency or failover policies; (2) Cross-region storage (Aurora Global Database / DynamoDB Global Tables) with RPO/RTO metrics; (3) Fencing tokens / consensus to prevent split-brain writes during partition.',
+        sample_pass_answer: 'We deploy an active-active topology across us-east-1 and eu-west-1 using Route 53 latency routing with automated health checks and CloudWatch synthetic canaries. For data persistence, we utilize Aurora Global Database with sub-second replication latency (RPO < 1s, RTO < 1 min). In the event of regional impairment, Route 53 automatically flips DNS traffic to the healthy region, and an automated Lambda step function promotes the replica cluster while applying fencing tokens to prevent split-brain writes.'
+      }
+    ]
+  }
+];
+
+const DEFAULT_ASSESSMENT_CONFIG: AssessmentConfig = DEFAULT_ASSESSMENT_CONFIGS[0];
+
 const DEFAULT_JOB: Job = {
   id: 'c0000000-0000-0000-0000-000000000001',
   organization_id: 'a0000000-0000-0000-0000-000000000001',
@@ -118,25 +365,39 @@ const DEFAULT_INTERVIEWER: Interviewer = {
 };
 
 let memoryStore: RecruitmentStore | null = null;
+let lastStoreMtime: number = 0;
 
 function getStore(): RecruitmentStore {
-  if (memoryStore) {
-    return memoryStore;
-  }
-
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     if (fs.existsSync(STORE_FILE)) {
-      const data = fs.readFileSync(STORE_FILE, 'utf-8');
-      if (data && data.trim()) {
-        memoryStore = JSON.parse(data);
-        return memoryStore!;
+      const stats = fs.statSync(STORE_FILE);
+      if (!memoryStore || stats.mtimeMs > lastStoreMtime) {
+        const data = fs.readFileSync(STORE_FILE, 'utf-8');
+        if (data && data.trim()) {
+          memoryStore = JSON.parse(data);
+          lastStoreMtime = stats.mtimeMs;
+          if (!memoryStore!.sent_emails) memoryStore!.sent_emails = [];
+          if (!memoryStore!.assessment_configs || memoryStore!.assessment_configs.length === 0) {
+            memoryStore!.assessment_configs = JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS));
+          }
+          if (!memoryStore!.assessment_config) {
+            memoryStore!.assessment_config = memoryStore!.assessment_configs[0];
+          }
+          return memoryStore!;
+        }
+      } else {
+        return memoryStore;
       }
     }
   } catch {
     // fallback to initial
+  }
+
+  if (memoryStore) {
+    return memoryStore;
   }
 
   // Initialize fresh store
@@ -163,7 +424,10 @@ function getStore(): RecruitmentStore {
         created_at: new Date().toISOString()
       }
     ],
-    retention_requests: []
+    retention_requests: [],
+    sent_emails: [],
+    assessment_config: { ...DEFAULT_ASSESSMENT_CONFIG },
+    assessment_configs: JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS))
   };
 
   memoryStore = initialStore;
@@ -184,8 +448,11 @@ function saveStore(store: RecruitmentStore): void {
     } catch {
       // On Windows rename can fail if open, copy instead
       fs.copyFileSync(tempFile, STORE_FILE);
-      fs.unlinkSync(tempFile);
+      try { fs.unlinkSync(tempFile); } catch {}
     }
+    try {
+      lastStoreMtime = fs.statSync(STORE_FILE).mtimeMs;
+    } catch {}
   } catch (err) {
     console.error('Failed writing recruitment store:', err);
   }
@@ -193,10 +460,44 @@ function saveStore(store: RecruitmentStore): void {
 
 export const db = {
   // Jobs
+  resetData(keepBaseJob: boolean = true): RecruitmentStore {
+    const resetStore: RecruitmentStore = {
+      jobs: keepBaseJob ? [DEFAULT_JOB] : [],
+      criteria: keepBaseJob ? [DEFAULT_CRITERIA] : [],
+      candidates: [],
+      cv_documents: [],
+      applications: [],
+      screening_runs: [],
+      assessment_assignments: [],
+      interviews: [],
+      interviewers: [DEFAULT_INTERVIEWER],
+      import_batches: [],
+      audit_logs: [
+        {
+          id: 'log-clean-' + Date.now(),
+          organization_id: 'a0000000-0000-0000-0000-000000000001',
+          user_name: 'System Admin',
+          entity_type: 'job',
+          entity_id: keepBaseJob ? DEFAULT_JOB.id : 'clean-slate',
+          action: 'CREATE',
+          details: { message: 'Initialized clean database state ready for user testing' },
+          created_at: new Date().toISOString()
+        }
+      ],
+      retention_requests: [],
+      sent_emails: [],
+      assessment_config: { ...DEFAULT_ASSESSMENT_CONFIG },
+      assessment_configs: JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS))
+    };
+
+    saveStore(resetStore);
+    return resetStore;
+  },
+
   getJobs(): Job[] {
     const store = getStore();
     return store.jobs.map(job => {
-      const criteria = store.criteria.find(c => c.job_id === job.id);
+      const criteria = store.criteria.find(c => c.job_id === job.id) || store.criteria[0] || DEFAULT_CRITERIA;
       return { ...job, criteria };
     });
   },
@@ -205,7 +506,7 @@ export const db = {
     const store = getStore();
     const job = store.jobs.find(j => j.id === id);
     if (!job) return null;
-    const criteria = store.criteria.find(c => c.job_id === job.id);
+    const criteria = store.criteria.find(c => c.job_id === job.id) || store.criteria[0] || DEFAULT_CRITERIA;
     return { ...job, criteria };
   },
 
@@ -221,24 +522,24 @@ export const db = {
     };
     store.jobs.push(newJob);
 
-    if (criteriaData) {
-      const newCriteria: ScreeningCriteria = {
-        id: 'crit-' + Date.now(),
-        job_id: id,
-        min_years_experience: criteriaData.min_years_experience ?? 3,
-        required_skills: criteriaData.required_skills ?? [],
-        preferred_skills: criteriaData.preferred_skills ?? [],
-        required_education: criteriaData.required_education ?? 'Bachelor degree or equivalent',
-        semantic_equivalence_rules: criteriaData.semantic_equivalence_rules ?? [],
-        scoring_weights: criteriaData.scoring_weights ?? { skills: 40, experience: 30, education: 15, domain: 15 },
-        pass_threshold_score: criteriaData.pass_threshold_score ?? 65,
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      store.criteria.push(newCriteria);
-      newJob.criteria = newCriteria;
-    }
+    const newCriteria: ScreeningCriteria = {
+      id: 'crit-' + Date.now(),
+      job_id: id,
+      min_years_experience: criteriaData?.min_years_experience ?? 3,
+      required_skills: (criteriaData?.required_skills && criteriaData.required_skills.length > 0)
+        ? criteriaData.required_skills
+        : DEFAULT_CRITERIA.required_skills,
+      preferred_skills: criteriaData?.preferred_skills ?? DEFAULT_CRITERIA.preferred_skills,
+      required_education: criteriaData?.required_education ?? DEFAULT_CRITERIA.required_education,
+      semantic_equivalence_rules: criteriaData?.semantic_equivalence_rules ?? DEFAULT_CRITERIA.semantic_equivalence_rules,
+      scoring_weights: criteriaData?.scoring_weights ?? { skills: 40, experience: 30, education: 15, domain: 15 },
+      pass_threshold_score: criteriaData?.pass_threshold_score ?? 65,
+      version: 1,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    store.criteria.push(newCriteria);
+    newJob.criteria = newCriteria;
 
     db.addAuditLog({
       organization_id: newJob.organization_id,
@@ -280,6 +581,16 @@ export const db = {
     return db.getJobById(id);
   },
 
+  deleteJob(id: string): boolean {
+    const store = getStore();
+    const index = store.jobs.findIndex(j => j.id === id);
+    if (index === -1) return false;
+    store.jobs.splice(index, 1);
+    store.criteria = store.criteria.filter(c => c.job_id !== id);
+    saveStore(store);
+    return true;
+  },
+
   // Candidates & Applications
   getCandidates(): Candidate[] {
     return getStore().candidates;
@@ -305,7 +616,9 @@ export const db = {
 
     return apps.map(app => {
       const candidate = store.candidates.find(c => c.id === app.candidate_id);
-      const job = store.jobs.find(j => j.id === app.job_id);
+      const jobRaw = store.jobs.find(j => j.id === app.job_id) || store.jobs[0] || DEFAULT_JOB;
+      const criteria = store.criteria.find(c => c.job_id === jobRaw.id) || store.criteria[0] || DEFAULT_CRITERIA;
+      const job = { ...jobRaw, criteria };
       const cv_document = store.cv_documents.find(d => d.id === app.cv_document_id);
       const latest_screening = store.screening_runs
         .filter(s => s.application_id === app.id)
@@ -345,12 +658,19 @@ export const db = {
     // Check existing candidate by email
     let candidate = store.candidates.find(c => c.email.toLowerCase() === data.email.toLowerCase());
     if (!candidate) {
+      const cleanFirst = data.firstName 
+        ? data.firstName.trim().charAt(0).toUpperCase() + data.firstName.trim().slice(1).toLowerCase() 
+        : 'Candidate';
+      const cleanLast = data.lastName 
+        ? data.lastName.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') 
+        : '';
+
       candidate = {
         id: 'cand-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
         organization_id: 'a0000000-0000-0000-0000-000000000001',
-        first_name: data.firstName,
-        last_name: data.lastName,
-        email: data.email,
+        first_name: cleanFirst,
+        last_name: cleanLast,
+        email: data.email.trim(),
         phone: data.phone,
         location: data.location,
         created_at: new Date().toISOString(),
@@ -482,7 +802,7 @@ export const db = {
   },
 
   // Admin Approvals & Overrides
-  approveForAssessment(applicationId: string, approvedBy: string): Application | null {
+  approveForAssessment(applicationId: string, approvedBy: string, configId?: string): Application | null {
     const store = getStore();
     const idx = store.applications.findIndex(a => a.id === applicationId);
     if (idx === -1) return null;
@@ -494,24 +814,36 @@ export const db = {
     store.applications[idx].invitation_status = 'APPROVED';
     store.applications[idx].updated_at = new Date().toISOString();
 
-    // Create or update assessment assignment
+    const app = store.applications[idx];
+    const job = store.jobs.find(j => j.id === app.job_id);
+    const resolvedConfig = db.getAssessmentConfig(configId || job?.assessment_config_id || job?.title);
+
+    const assessId = 'assess-' + Date.now();
+    const testUrl = resolvedConfig.mode === 'EXTERNAL_URL' && resolvedConfig.external_url?.trim()
+      ? resolvedConfig.external_url.trim()
+      : `/assessment/take/${assessId}`;
+
     let assignment = store.assessment_assignments.find(a => a.application_id === applicationId);
     if (!assignment) {
       assignment = {
-        id: 'assess-' + Date.now(),
+        id: assessId,
         application_id: applicationId,
-        assessment_type: 'EXTERNAL_URL',
-        assessment_url: 'https://forms.google.com/d/e/demo-recruitment-assessment/viewform',
+        config_id: resolvedConfig.id,
+        assessment_type: resolvedConfig.mode === 'EXTERNAL_URL' ? 'GOOGLE_FORMS' : 'EXTERNAL_URL',
+        assessment_url: testUrl,
         due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        pass_threshold_percentage: 70,
-        status: 'PENDING_APPROVAL',
+        pass_threshold_percentage: resolvedConfig.pass_threshold_percentage || 70,
+        status: 'SENT',
         verified: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
       store.assessment_assignments.push(assignment);
     } else {
-      assignment.status = 'QUEUED';
+      assignment.config_id = resolvedConfig.id;
+      assignment.status = 'SENT';
+      assignment.assessment_url = testUrl;
+      assignment.pass_threshold_percentage = resolvedConfig.pass_threshold_percentage || 70;
       assignment.updated_at = new Date().toISOString();
     }
 
@@ -589,6 +921,194 @@ export const db = {
     return store.assessment_assignments;
   },
 
+  getAssessmentById(id: string): AssessmentAssignment | null {
+    const store = getStore();
+    return store.assessment_assignments.find(a => a.id === id) || null;
+  },
+
+  getAssessmentByApplicationId(applicationId: string): AssessmentAssignment | null {
+    const store = getStore();
+    return store.assessment_assignments.find(a => a.application_id === applicationId) || null;
+  },
+
+  getAssessmentConfigs(): AssessmentConfig[] {
+    const store = getStore();
+    if (!store.assessment_configs || store.assessment_configs.length === 0) {
+      store.assessment_configs = JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS));
+      saveStore(store);
+    }
+    return store.assessment_configs;
+  },
+
+  getAssessmentConfig(idOrRole?: string): AssessmentConfig {
+    const store = getStore();
+    if (!store.assessment_configs || store.assessment_configs.length === 0) {
+      store.assessment_configs = JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS));
+      store.assessment_config = store.assessment_configs[0];
+      saveStore(store);
+    }
+
+    if (idOrRole && typeof idOrRole === 'string' && idOrRole.trim()) {
+      const q = idOrRole.trim().toLowerCase();
+      // Match by exact ID
+      const byId = store.assessment_configs.find(c => c.id.toLowerCase() === q);
+      if (byId) return byId;
+
+      // Match by exact or partial role
+      const byRole = store.assessment_configs.find(c => c.role && (c.role.toLowerCase() === q || q.includes(c.role.toLowerCase()) || c.role.toLowerCase().includes(q)));
+      if (byRole) return byRole;
+
+      // Match by title
+      const byTitle = store.assessment_configs.find(c => c.title && (c.title.toLowerCase() === q || q.includes(c.title.toLowerCase()) || c.title.toLowerCase().includes(q)));
+      if (byTitle) return byTitle;
+    }
+
+    if (store.assessment_config && store.assessment_config.questions && store.assessment_config.questions.length > 0) {
+      return store.assessment_config;
+    }
+
+    return store.assessment_configs[0] || DEFAULT_ASSESSMENT_CONFIG;
+  },
+
+  saveAssessmentConfig(config: AssessmentConfig): AssessmentConfig {
+    const store = getStore();
+    if (!store.assessment_configs) {
+      store.assessment_configs = JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS));
+    }
+
+    const now = new Date().toISOString();
+    const configToSave: AssessmentConfig = {
+      ...config,
+      id: config.id || `cfg-${Date.now()}`,
+      updated_at: now,
+      created_at: config.created_at || now
+    };
+
+    const idx = store.assessment_configs.findIndex(c => c.id === configToSave.id);
+    if (idx >= 0) {
+      store.assessment_configs[idx] = configToSave;
+    } else {
+      store.assessment_configs.push(configToSave);
+    }
+
+    store.assessment_config = configToSave;
+    saveStore(store);
+    return configToSave;
+  },
+
+  createAssessmentConfig(data: Partial<AssessmentConfig>): AssessmentConfig {
+    const store = getStore();
+    const id = `cfg-${Date.now()}`;
+    const now = new Date().toISOString();
+    const newConfig: AssessmentConfig = {
+      id,
+      role: data.role || 'Custom Role',
+      title: data.title || `${data.role || 'Custom Role'} Assessment Challenge`,
+      description: data.description || 'Role-specific competency and technical challenge',
+      mode: data.mode || 'INBUILT',
+      external_url: data.external_url || '',
+      duration_minutes: data.duration_minutes || 45,
+      pass_threshold_percentage: data.pass_threshold_percentage || 70,
+      calendly_link: data.calendly_link || 'https://calendly.com',
+      anti_cheat_enabled: data.anti_cheat_enabled ?? true,
+      webcam_required: data.webcam_required ?? false,
+      screen_share_required: data.screen_share_required ?? false,
+      questions: data.questions || [
+        {
+          id: 'q_' + Date.now(),
+          type: 'mcq',
+          title: 'Core Technical Principles',
+          category: 'Architecture',
+          description: 'Evaluate core architecture patterns, trade-offs, and scalability for this role.',
+          points: 25,
+          options: [
+            'A) Proposed approach option A',
+            'B) Recommended production-grade architecture pattern with fault tolerance',
+            'C) Synchronous polling without backoff',
+            'D) Unindexed raw database queries'
+          ],
+          correct_option_index: 1,
+          explanation: 'Option B follows optimal system architecture principles with horizontal scalability and fault isolation.'
+        }
+      ],
+      created_at: now,
+      updated_at: now
+    };
+
+    if (!store.assessment_configs) store.assessment_configs = [];
+    store.assessment_configs.push(newConfig);
+    store.assessment_config = newConfig;
+    saveStore(store);
+    return newConfig;
+  },
+
+  deleteAssessmentConfig(id: string): boolean {
+    const store = getStore();
+    if (!store.assessment_configs || store.assessment_configs.length <= 1) {
+      return false; // Prevent deleting the last remaining config
+    }
+    store.assessment_configs = store.assessment_configs.filter(c => c.id !== id);
+    if (store.assessment_config?.id === id) {
+      store.assessment_config = store.assessment_configs[0];
+    }
+    saveStore(store);
+    return true;
+  },
+
+  // Sent Emails
+  addSentEmail(emailData: Omit<SentEmail, 'id' | 'sent_at'>): SentEmail {
+    const store = getStore();
+    if (!store.sent_emails) store.sent_emails = [];
+    const email: SentEmail = {
+      ...emailData,
+      id: 'email-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      sent_at: new Date().toISOString()
+    };
+    store.sent_emails.unshift(email);
+    saveStore(store);
+    return email;
+  },
+
+  getSentEmails(): SentEmail[] {
+    const store = getStore();
+    return store.sent_emails || [];
+  },
+
+  findNextAvailableSlot(interviewerId: string, durationMinutes: number = 45): string {
+    const store = getStore();
+    const candidateHours = [14, 15, 10, 11, 16]; // 2 PM, 3 PM, 10 AM, 11 AM, 4 PM
+
+    for (let dayOffset = 1; dayOffset <= 10; dayOffset++) {
+      const testDate = new Date();
+      testDate.setDate(testDate.getDate() + dayOffset);
+      // Skip Saturday (6) and Sunday (0)
+      if (testDate.getDay() === 0 || testDate.getDay() === 6) continue;
+
+      for (const hour of candidateHours) {
+        testDate.setHours(hour, 0, 0, 0);
+        const startMs = testDate.getTime();
+        const endMs = startMs + durationMinutes * 60 * 1000;
+
+        const hasConflict = store.interviews.some(existing => {
+          if (existing.interviewer_id !== interviewerId) return false;
+          if (existing.booking_status === 'CANCELLED') return false;
+          const eStart = new Date(existing.scheduled_start).getTime();
+          const eEnd = new Date(existing.scheduled_end).getTime();
+          return (startMs < eEnd && endMs > eStart);
+        });
+
+        if (!hasConflict) {
+          return testDate.toISOString();
+        }
+      }
+    }
+
+    const fallback = new Date();
+    fallback.setDate(fallback.getDate() + 1);
+    fallback.setHours(14, 0, 0, 0);
+    return fallback.toISOString();
+  },
+
   saveAssessmentResult(
     assignmentId: string, 
     data: { 
@@ -629,7 +1149,110 @@ export const db = {
     if (appIdx !== -1) {
       store.applications[appIdx].assessment_status = passed ? 'PASSED' : 'FAILED';
       if (passed) {
-        store.applications[appIdx].interview_status = 'AWAITING_APPROVAL';
+        store.applications[appIdx].stage = 'INTERVIEW';
+        store.applications[appIdx].interview_status = 'SCHEDULED';
+
+        // Check if an interview already exists
+        const existingInterview = store.interviews.find(i => i.application_id === appId);
+        if (!existingInterview) {
+          const interviewer = store.interviewers[0] || DEFAULT_INTERVIEWER;
+          const scheduledStart = db.findNextAvailableSlot(interviewer.id, 45);
+          const startMs = new Date(scheduledStart).getTime();
+          const endMs = startMs + 45 * 60 * 1000;
+          
+          const candidate = store.candidates.find(c => c.id === store.applications[appIdx].candidate_id);
+          const job = store.jobs.find(j => j.id === store.applications[appIdx].job_id);
+          
+          // Determine booking URL: Use recruiter's Calendly link from UI / Job, fallback to Google Meet
+          const calendlyLink = (job?.calendly_link || store.assessment_config?.calendly_link || '').trim();
+          const fallbackMeetUrl = generateMeetLink(appId);
+          const bookingUrl = calendlyLink || fallbackMeetUrl;
+
+          const interview: Interview = {
+            id: 'int-' + Date.now(),
+            application_id: appId,
+            interviewer_id: interviewer.id,
+            interviewer_name: interviewer.name,
+            round_number: 2,
+            scheduled_start: scheduledStart,
+            scheduled_end: new Date(endMs).toISOString(),
+            timezone: interviewer.timezone || 'America/New_York',
+            duration_minutes: 45,
+            scheduling_mode: calendlyLink ? 'MANUAL' : 'GOOGLE_CALENDAR',
+            booking_status: 'SCHEDULED',
+            meeting_url: bookingUrl,
+            calendly_url: calendlyLink || undefined,
+            google_event_id: `cal_event_round2_${Date.now()}`,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          store.interviews.push(interview);
+
+          // Dispatch Round 2 interview email with Calendly booking link (Human, non-AI tone)
+          if (candidate) {
+            const firstName = candidate.first_name || 'there';
+            const roleTitle = job?.title || 'Senior Full-Stack Cloud Engineer';
+            const subject = `Next steps: Technical Interview for ${roleTitle}`;
+            const bodyHtml = `
+              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; color: #1f2937; line-height: 1.6; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
+                <p style="font-size: 15px; margin-top: 0; margin-bottom: 20px; color: #111827;">
+                  Hi ${firstName},
+                </p>
+
+                <p style="font-size: 15px; margin-bottom: 16px; color: #374151;">
+                  Thank you for taking the time to complete the technical assessment for the <strong>${roleTitle}</strong> role. Our engineering team reviewed your submission, and we were really impressed with your architecture and problem-solving approach.
+                </p>
+
+                <p style="font-size: 15px; margin-bottom: 24px; color: #374151;">
+                  We'd love to invite you to our next round—a 45-minute technical conversation. It'll be a chance to talk through your experience, dive deeper into system design, and give you plenty of time to ask us anything about what we're building and what it's like working here.
+                </p>
+
+                <div style="margin: 28px 0; text-align: left;">
+                  <a href="${bookingUrl}" style="background-color: #2563eb; color: #ffffff; padding: 12px 26px; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; display: inline-block;">
+                    Schedule your interview
+                  </a>
+                </div>
+
+                <p style="font-size: 13px; color: #6b7280; margin-bottom: 20px; line-height: 1.5;">
+                  You can also use this direct link to view available times: <br/>
+                  <a href="${bookingUrl}" style="color: #2563eb; word-break: break-all;">${bookingUrl}</a>
+                </p>
+
+                <p style="font-size: 14px; color: #4b5563; margin-bottom: 24px;">
+                  If none of the available slots fit your schedule or timezone, just reply directly to this email with a few times that suit you best and we'll gladly work around your availability.
+                </p>
+
+                <p style="font-size: 15px; margin-bottom: 4px; color: #374151;">
+                  Looking forward to speaking with you!
+                </p>
+                <p style="font-size: 15px; font-weight: 600; color: #111827; margin-top: 0;">
+                  The Engineering Hiring Team
+                </p>
+              </div>
+            `.trim();
+
+            const email: SentEmail = {
+              id: 'email-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+              recipient_email: candidate.email,
+              recipient_name: `${candidate.first_name} ${candidate.last_name}`.trim(),
+              subject,
+              body_html: bodyHtml,
+              template_type: 'ROUND_2_INTERVIEW_INVITATION',
+              metadata: {
+                applicationId: appId,
+                score: percentage,
+                meetingUrl: bookingUrl,
+                calendlyUrl: calendlyLink || undefined,
+                scheduledStart,
+                interviewerName: interviewer.name
+              },
+              sent_at: new Date().toISOString()
+            };
+            if (!store.sent_emails) store.sent_emails = [];
+            store.sent_emails.unshift(email);
+            dispatchRealSmtpEmail(candidate.email, subject, bodyHtml);
+          }
+        }
       }
       store.applications[appIdx].updated_at = new Date().toISOString();
     }
@@ -754,6 +1377,84 @@ export const db = {
 
     saveStore(store);
     return { interview };
+  },
+
+  updateInterviewCalendar(interviewId: string, data: {
+    bookingStatus?: Interview['booking_status'];
+    calendarEventId?: string;
+    meetingUrl?: string;
+  }): Interview | null {
+    const store = getStore();
+    const idx = store.interviews.findIndex(i => i.id === interviewId || i.application_id === interviewId);
+    if (idx === -1) return null;
+
+    if (data.bookingStatus) store.interviews[idx].booking_status = data.bookingStatus;
+    if (data.calendarEventId) store.interviews[idx].google_event_id = data.calendarEventId;
+    if (data.meetingUrl) store.interviews[idx].meeting_url = data.meetingUrl;
+    store.interviews[idx].updated_at = new Date().toISOString();
+
+    const appId = store.interviews[idx].application_id;
+    const appIdx = store.applications.findIndex(a => a.id === appId);
+    if (appIdx !== -1 && data.bookingStatus === 'SCHEDULED') {
+      store.applications[appIdx].interview_status = 'SCHEDULED';
+      store.applications[appIdx].updated_at = new Date().toISOString();
+    }
+
+    db.addAuditLog({
+      organization_id: 'a0000000-0000-0000-0000-000000000001',
+      entity_type: 'interview',
+      entity_id: store.interviews[idx].id,
+      action: 'UPDATE',
+      details: data
+    });
+
+    saveStore(store);
+    return store.interviews[idx];
+  },
+
+  updateAssessmentStatus(assignmentId: string, status: AssessmentAssignment['status']): AssessmentAssignment | null {
+    const store = getStore();
+    const idx = store.assessment_assignments.findIndex(a => a.id === assignmentId);
+    if (idx === -1) return null;
+
+    store.assessment_assignments[idx].status = status;
+    store.assessment_assignments[idx].updated_at = new Date().toISOString();
+
+    const appId = store.assessment_assignments[idx].application_id;
+    const appIdx = store.applications.findIndex(a => a.id === appId);
+    if (appIdx !== -1) {
+      if (status === 'SENT') {
+        store.applications[appIdx].invitation_status = 'SENT';
+      }
+      store.applications[appIdx].updated_at = new Date().toISOString();
+    }
+
+    db.addAuditLog({
+      organization_id: 'a0000000-0000-0000-0000-000000000001',
+      entity_type: 'assessment',
+      entity_id: assignmentId,
+      action: 'UPDATE',
+      details: { status, application_id: appId }
+    });
+
+    saveStore(store);
+    return store.assessment_assignments[idx];
+  },
+
+  getOverdueAssessments(): Array<AssessmentAssignment & { candidate?: Candidate; jobTitle?: string }> {
+    const store = getStore();
+    return store.assessment_assignments
+      .filter(a => a.status !== 'PASSED' && a.status !== 'FAILED')
+      .map(assignment => {
+        const app = store.applications.find(ap => ap.id === assignment.application_id);
+        const candidate = app ? store.candidates.find(c => c.id === app.candidate_id) : undefined;
+        const job = app ? store.jobs.find(j => j.id === app.job_id) : undefined;
+        return {
+          ...assignment,
+          candidate,
+          jobTitle: job?.title || 'Engineer'
+        };
+      });
   },
 
   // Audit Logs

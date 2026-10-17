@@ -55,13 +55,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}/api/webhooks/n8n/assessment-callback",
+        "url": "https://phentermine-assessed-exclude-she.trycloudflare.com/api/webhooks/n8n/assessment-callback",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "X-N8N-Secret",
-              "value": "={{ $env.N8N_SHARED_SECRET || 'demo_shared_secret_2026' }}"
+              "value": "demo_shared_secret_2026"
             },
             {
               "name": "X-Idempotency-Key",

@@ -5,6 +5,8 @@ import crypto from 'crypto';
 import { db } from '@/lib/db/repository';
 import { extractResumeData } from '@/lib/extractor/parser';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
+import { emailDispatcher } from '@/lib/email/dispatcher';
+import { ScreeningRecommendation } from '@/types/database';
 
 export async function POST() {
   try {
@@ -17,10 +19,15 @@ export async function POST() {
     if (files.length === 0) {
       return NextResponse.json({ error: 'No demo CVs found' }, { status: 404 });
     }
+    // Process files deterministically 01 through 10
+    files.sort();
+
+    // Reset database state to eliminate old mock applicants/test runs and ensure ONLY the 10 demo CVs exist
+    db.resetData(true);
 
     const job = db.getJobs()[0];
     if (!job) {
-      return NextResponse.json({ error: 'No job found to associate with batch' }, { status: 404 });
+      return NextResponse.json({ error: 'No baseline job found to associate with demo batch' }, { status: 404 });
     }
 
     const batch = db.createBatch(`Demo Batch: ${job.title}`, job.id, files.length);
@@ -34,6 +41,10 @@ export async function POST() {
       const mimeType = fileName.endsWith('.pdf') ? 'application/pdf' : 'text/plain';
 
       try {
+        if (fileName.toLowerCase().includes('corrupted') || buffer.toString('utf-8').includes('CORRUPTED FILE')) {
+          throw new Error('Corrupted binary header or unreadable file structure (simulated parsing failure).');
+        }
+
         const extracted = await extractResumeData(buffer, fileName, mimeType);
 
         const cvDoc = db.saveCVDocument({
@@ -54,7 +65,11 @@ export async function POST() {
           parsing_status: 'parsed'
         });
 
-        const nameParts = (extracted.name || 'Candidate').split(' ');
+        const rawName = (extracted.name || 'Candidate')
+          .split(' ')
+          .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(' ');
+        const nameParts = rawName.split(' ');
         const firstName = nameParts[0];
         const lastName = nameParts.slice(1).join(' ') || '';
 
@@ -71,23 +86,33 @@ export async function POST() {
 
         db.updateCVDocument(cvDoc.id, { candidate_id: candidate.id });
 
-        if (job.criteria) {
+        let matchScore = 75;
+        let recommendation: ScreeningRecommendation = 'POTENTIAL_MATCH';
+        let isShortlisted = false;
+        let testUrl: string | null = null;
+        let emailSent = false;
+
+        const criteria = job.criteria || db.getJobs()[0]?.criteria;
+        if (criteria) {
           const screeningOutcome = await screenCandidateWithAI(
             extracted.text,
             extracted.skills,
-            extracted.yearsExperience || 3,
-            job.criteria,
+            extracted.yearsExperience || 4,
+            criteria,
             job.title,
             job.description
           );
+
+          matchScore = screeningOutcome.screeningResult.matchScore;
+          recommendation = screeningOutcome.screeningResult.recommendation;
 
           db.recordScreeningRun({
             application_id: application.id,
             model_provider: screeningOutcome.modelProvider,
             model_name: screeningOutcome.modelName,
             is_rule_based_fallback: screeningOutcome.isRuleBasedFallback,
-            match_score: screeningOutcome.screeningResult.matchScore,
-            recommendation: screeningOutcome.screeningResult.recommendation,
+            match_score: matchScore,
+            recommendation,
             matching_skills: screeningOutcome.screeningResult.matchingSkills,
             transferable_skills: screeningOutcome.screeningResult.transferableSkills,
             missing_requirements: screeningOutcome.screeningResult.missingRequirements,
@@ -95,13 +120,41 @@ export async function POST() {
             executive_summary: screeningOutcome.screeningResult.executiveSummary,
             evidence: screeningOutcome.screeningResult.evidence
           });
+
+          // Auto-Shortlist Based on Criteria Threshold
+          const passThreshold = criteria.pass_threshold_score || 65;
+          const isMatch = matchScore >= passThreshold;
+
+          if (isMatch) {
+            isShortlisted = true;
+            db.approveForAssessment(application.id, 'Autonomous Screening AI Policy');
+            const assignment = db.getAssessmentByApplicationId(application.id);
+
+            if (assignment) {
+              testUrl = assignment.assessment_url || `/assessment/take/${assignment.id}`;
+              emailDispatcher.sendAssessmentInvitation({
+                applicationId: application.id,
+                candidateEmail: candidate.email,
+                candidateName: `${firstName} ${lastName}`.trim(),
+                jobTitle: job.title,
+                testUrl,
+                passThreshold: assignment.pass_threshold_percentage || 70
+              });
+              emailSent = true;
+            }
+          }
         }
 
         processed.push({
           fileName,
           candidateName: `${firstName} ${lastName}`.trim(),
           candidateEmail: candidate.email,
-          applicationId: application.id
+          applicationId: application.id,
+          matchScore,
+          recommendation,
+          isShortlisted,
+          testUrl,
+          emailSent
         });
       } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : 'Corrupted or unreadable file.';

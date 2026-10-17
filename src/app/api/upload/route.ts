@@ -5,6 +5,8 @@ import fs from 'fs';
 import { db } from '@/lib/db/repository';
 import { extractResumeData } from '@/lib/extractor/parser';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
+import { emailDispatcher } from '@/lib/email/dispatcher';
+import { ScreeningRecommendation } from '@/types/database';
 
 const UPLOAD_DIR = path.resolve(process.cwd(), '.data', 'uploads');
 
@@ -12,6 +14,7 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const jobId = formData.get('jobId') as string;
+    const roleTitle = (formData.get('roleTitle') as string) || '';
     const batchName = (formData.get('batchName') as string) || `Batch_${new Date().toISOString().substring(0, 10)}`;
     const files = formData.getAll('files') as File[];
 
@@ -23,9 +26,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Maximum 50 files allowed per upload batch.' }, { status: 400 });
     }
 
-    const job = jobId ? db.getJobById(jobId) : db.getJobs()[0];
+    // Resilient job resolution: by ID -> by Title -> first active job -> auto-create default
+    let job = (jobId && jobId !== 'undefined' && jobId !== 'null') ? db.getJobById(jobId) : null;
+    if (!job && roleTitle) {
+      job = db.getJobs().find(j => j.title.toLowerCase().trim() === roleTitle.toLowerCase().trim()) || null;
+    }
     if (!job) {
-      return NextResponse.json({ error: 'Selected job was not found.' }, { status: 404 });
+      const allJobs = db.getJobs();
+      job = allJobs[0] || null;
+    }
+    if (!job) {
+      job = db.createJob({
+        organization_id: 'a0000000-0000-0000-0000-000000000001',
+        title: roleTitle || 'Senior Full-Stack Cloud Engineer',
+        department: 'Platform Engineering',
+        location: 'Remote (Global)',
+        employment_type: 'Full-Time',
+        description: 'Autonomous recruitment pipeline default role',
+        status: 'active'
+      });
+    }
+
+    const calendlyLinkParam = ((formData.get('calendlyLink') || formData.get('calendly_link')) as string) || '';
+    const assessmentConfigId = ((formData.get('assessmentConfigId') || formData.get('assessment_config_id')) as string) || '';
+
+    const jobUpdates: Partial<typeof job> = {};
+    if (calendlyLinkParam && calendlyLinkParam.trim()) {
+      jobUpdates.calendly_link = calendlyLinkParam.trim();
+    }
+    if (assessmentConfigId && assessmentConfigId.trim()) {
+      jobUpdates.assessment_config_id = assessmentConfigId.trim();
+    }
+    if (Object.keys(jobUpdates).length > 0) {
+      db.updateJob(job.id, jobUpdates);
     }
 
     // Ensure upload storage directory exists
@@ -33,7 +66,15 @@ export async function POST(req: NextRequest) {
       fs.mkdirSync(UPLOAD_DIR, { recursive: true });
     }
 
-    const batch = db.createBatch(batchName, job.id, files.length);
+    const batchIdParam = (formData.get('batchId') as string) || '';
+    let batch = batchIdParam ? db.getBatchById(batchIdParam) : null;
+    if (!batch) {
+      batch = db.createBatch(batchName, job.id, files.length);
+    } else {
+      db.updateBatch(batch.id, {
+        total_files: Math.max(batch.total_files, (batch.processed_files || 0) + files.length)
+      });
+    }
 
     const processedResults = [];
     const failedResults = [];
@@ -123,6 +164,16 @@ export async function POST(req: NextRequest) {
         // Update CV document with candidate link
         db.updateCVDocument(cvDoc.id, { candidate_id: candidate.id });
 
+        let matchScore = 75;
+        let recommendation: ScreeningRecommendation = 'POTENTIAL_MATCH';
+        let isShortlisted = false;
+        let testUrl: string | null = null;
+        let emailSent = false;
+        let aiEvaluationData = null;
+        let modelProviderUsed = 'rule-based-engine';
+        let modelNameUsed = 'semantic-equivalence-matrix-v1';
+        let isFallback = true;
+
         // 7. Perform Intelligent Semantic AI Screening
         if (job.criteria) {
           const screeningOutcome = await screenCandidateWithAI(
@@ -134,13 +185,20 @@ export async function POST(req: NextRequest) {
             job.description
           );
 
+          matchScore = screeningOutcome.screeningResult.matchScore;
+          recommendation = screeningOutcome.screeningResult.recommendation;
+          aiEvaluationData = screeningOutcome.screeningResult;
+          modelProviderUsed = screeningOutcome.modelProvider;
+          modelNameUsed = screeningOutcome.modelName;
+          isFallback = screeningOutcome.isRuleBasedFallback;
+
           db.recordScreeningRun({
             application_id: application.id,
             model_provider: screeningOutcome.modelProvider,
             model_name: screeningOutcome.modelName,
             is_rule_based_fallback: screeningOutcome.isRuleBasedFallback,
-            match_score: screeningOutcome.screeningResult.matchScore,
-            recommendation: screeningOutcome.screeningResult.recommendation,
+            match_score: matchScore,
+            recommendation,
             matching_skills: screeningOutcome.screeningResult.matchingSkills,
             transferable_skills: screeningOutcome.screeningResult.transferableSkills,
             missing_requirements: screeningOutcome.screeningResult.missingRequirements,
@@ -148,6 +206,35 @@ export async function POST(req: NextRequest) {
             executive_summary: screeningOutcome.screeningResult.executiveSummary,
             evidence: screeningOutcome.screeningResult.evidence
           });
+
+          // 8. Auto-Shortlist Based on Scoring Threshold
+          const passThreshold = job.criteria.pass_threshold_score || 65;
+          const isMatch = matchScore >= passThreshold;
+
+          if (isMatch) {
+            isShortlisted = true;
+            db.approveForAssessment(application.id, 'Autonomous Screening AI Policy', assessmentConfigId || job.assessment_config_id);
+            const assignment = db.getAssessmentByApplicationId(application.id);
+
+            if (assignment) {
+              const customFormUrl = formData.get('assessmentUrl') as string;
+              if (customFormUrl && customFormUrl.trim()) {
+                assignment.assessment_url = customFormUrl.trim();
+              }
+              testUrl = assignment.assessment_url || `/assessment/take/${assignment.id}`;
+
+              // Send Assessment Form Invitation Email
+              emailDispatcher.sendAssessmentInvitation({
+                applicationId: application.id,
+                candidateEmail: candidate.email,
+                candidateName: `${firstName} ${lastName}`.trim(),
+                jobTitle: job.title,
+                testUrl,
+                passThreshold: assignment.pass_threshold_percentage || 70
+              });
+              emailSent = true;
+            }
+          }
         }
 
         processedResults.push({
@@ -155,6 +242,15 @@ export async function POST(req: NextRequest) {
           candidateName: `${firstName} ${lastName}`.trim(),
           candidateEmail: candidate.email,
           applicationId: application.id,
+          matchScore,
+          recommendation,
+          isShortlisted,
+          testUrl,
+          emailSent,
+          aiEvaluation: aiEvaluationData,
+          modelProvider: modelProviderUsed,
+          modelName: modelNameUsed,
+          isRuleBasedFallback: isFallback,
           status: 'success'
         });
       } catch (parseErr: unknown) {
@@ -178,11 +274,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Update batch status
+    const currentProcessed = (batch.processed_files || 0) + processedResults.length;
+    const currentFailed = (batch.failed_files || 0) + failedResults.length;
     db.updateBatch(batch.id, {
-      processed_files: processedResults.length,
-      failed_files: failedResults.length,
-      status: failedResults.length === 0 ? 'completed' : processedResults.length > 0 ? 'partial_failure' : 'failed',
-      error_summary: failedResults.length > 0 ? `${failedResults.length} files failed processing` : undefined
+      processed_files: currentProcessed,
+      failed_files: currentFailed,
+      status: currentFailed === 0 ? 'completed' : currentProcessed > 0 ? 'partial_failure' : 'failed',
+      error_summary: currentFailed > 0 ? `${currentFailed} files failed processing` : undefined
     });
 
     return NextResponse.json({

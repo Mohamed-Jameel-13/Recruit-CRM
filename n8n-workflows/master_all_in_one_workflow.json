@@ -1,0 +1,708 @@
+{
+  "name": "CV Screener - Master All-in-One Recruitment Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cv-batch",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "[01] Batch Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 180],
+      "webhookId": "cv-screener-batch-trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.headers['x-n8n-secret'] || $json.headers['authorization'] }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "[01] Verify Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 180]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.documents",
+        "options": {}
+      },
+      "name": "[01] Split Each CV",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 1,
+      "position": [700, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://phentermine-assessed-exclude-she.trycloudflare.com/api/screening/evaluate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "demo_shared_secret_2026"
+            },
+            {
+              "name": "X-Idempotency-Key",
+              "value": "={{ 'n8n-screen-' + $json.id + '-' + $now.format('yyyyMMddHH') }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "applicationId",
+              "value": "={{ $json.application_id }}"
+            },
+            {
+              "name": "documentId",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {
+          "retry": {
+            "retry": true,
+            "maxTries": 3,
+            "waitBetweenTries": 2000
+          }
+        }
+      },
+      "name": "[01] Screen Candidate Endpoint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [940, 120]
+    },
+    {
+      "parameters": {
+        "errorMessage": "Unauthorized Webhook Call: Missing or invalid secret."
+      },
+      "name": "[01] Stop Unauthorized",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [700, 260]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "send-assessment-invites",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "[02] Webhook Approved Invites",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 480],
+      "webhookId": "cv-screener-assessment-invites"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.invitations",
+        "options": {}
+      },
+      "name": "[02] Split Invitations",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 1,
+      "position": [480, 480]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.candidate_email }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "[02] Validate Recipient",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [700, 480]
+    },
+    {
+      "parameters": {
+        "fromEmail": "recruitment@acme.example.com",
+        "toEmail": "={{ $json.candidate_email }}",
+        "subject": "=Technical Assessment Invitation: {{ $json.job_title }}",
+        "text": "=Hello {{ $json.candidate_name }},\n\nCongratulations! Your application for {{ $json.job_title }} has passed initial screening.\n\nPlease complete your technical assessment at the following link before {{ $json.due_date }}:\n{{ $json.assessment_url }}\n\nBest regards,\nRecruitment Operations Team",
+        "options": {}
+      },
+      "name": "[02] Send Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [940, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://phentermine-assessed-exclude-she.trycloudflare.com/api/assessments/status-update",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "demo_shared_secret_2026"
+            },
+            {
+              "name": "X-Idempotency-Key",
+              "value": "={{ 'invite-sent-' + ($('[02] Split Invitations').item.json.assignment_id || $('Split Invitations').item.json.assignment_id || $json.assignment_id) }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "assignmentId",
+              "value": "={{ $('[02] Split Invitations').item.json.assignment_id || $('Split Invitations').item.json.assignment_id || $json.assignment_id }}"
+            },
+            {
+              "name": "status",
+              "value": "SENT"
+            }
+          ]
+        }
+      },
+      "name": "[02] Confirm Delivery Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1180, 420]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "name": "[03] Cron Poll Google Sheets",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 780]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ASSESSMENT_RESPONSES_ID || 'demo_responses_sheet' }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Form Responses 1",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "name": "[03] Fetch Google Sheet Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [480, 780]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json['Email Address'] || $json['email'] }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "[03] Filter Valid Emails",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [700, 780]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://phentermine-assessed-exclude-she.trycloudflare.com/api/webhooks/n8n/assessment-callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "demo_shared_secret_2026"
+            },
+            {
+              "name": "X-Idempotency-Key",
+              "value": "={{ 'gsheet-sync-' + ($json['Email Address'] || $json['email']) + '-' + ($json['Timestamp'] || $now.format('yyyyMMdd')) }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "candidateEmail",
+              "value": "={{ $json['Email Address'] || $json['email'] }}"
+            },
+            {
+              "name": "score",
+              "value": "={{ parseFloat($json['Score'] || $json['Quiz Score'] || '0') }}"
+            },
+            {
+              "name": "maxScore",
+              "value": "={{ parseFloat($json['Max Score'] || '100') }}"
+            },
+            {
+              "name": "source",
+              "value": "google_forms_sync"
+            },
+            {
+              "name": "rawPayload",
+              "value": "={{ $json }}"
+            }
+          ]
+        }
+      },
+      "name": "[03] Sync Result to App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [940, 720]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "schedule-interview",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "[04] Webhook Interview Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 1080],
+      "webhookId": "cv-screener-interview-coordination"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.body.hasGoogleCredentials }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "[04] Check Google Auth",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 1080]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "id"
+        },
+        "start": "={{ $json.body.scheduledStart }}",
+        "end": "={{ $json.body.scheduledEnd }}",
+        "summary": "=Round 2 Technical Interview: {{ $json.body.candidateName }} - {{ $json.body.jobTitle }}",
+        "description": "=Candidate: {{ $json.body.candidateName }}\nEmail: {{ $json.body.candidateEmail }}\nRole: {{ $json.body.jobTitle }}\nInterviewer: {{ $json.body.interviewerName }}\n\nScheduled via AI Recruitment Automation Platform.",
+        "additionalFields": {
+          "conferenceDataUi": {
+            "conferenceDataValues": {
+              "conferenceSolution": "hangoutsMeet"
+            }
+          }
+        }
+      },
+      "name": "[04] Create Calendar Event & Meet",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.1,
+      "position": [740, 1020]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://phentermine-assessed-exclude-she.trycloudflare.com/api/interviews/calendar-callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "demo_shared_secret_2026"
+            },
+            {
+              "name": "X-Idempotency-Key",
+              "value": "={{ 'cal-event-' + $json.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "interviewId",
+              "value": "={{ $('[04] Webhook Interview Request').item.json.body.interviewId }}"
+            },
+            {
+              "name": "googleEventId",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "meetingUrl",
+              "value": "={{ $json.hangoutLink || $json.htmlLink }}"
+            },
+            {
+              "name": "status",
+              "value": "SCHEDULED"
+            }
+          ]
+        }
+      },
+      "name": "[04] Update Interview In App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 1020]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "name": "[05] Daily Reminder Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 1380]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://phentermine-assessed-exclude-she.trycloudflare.com/api/assessments/overdue",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "demo_shared_secret_2026"
+            }
+          ]
+        }
+      },
+      "name": "[05] Fetch Overdue Assessments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 1340]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "name": "[05] Split Overdue Items",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 1,
+      "position": [720, 1340]
+    },
+    {
+      "parameters": {
+        "fromEmail": "recruitment@acme.example.com",
+        "toEmail": "={{ $json.candidate_email }}",
+        "subject": "=Friendly Reminder: Technical Assessment Due Soon",
+        "text": "=Hello {{ $json.candidate_name }},\n\nThis is a friendly reminder that your technical assessment for {{ $json.job_title }} is due on {{ $json.due_date }}.\n\nLink: {{ $json.assessment_url }}\n\nBest regards,\nRecruitment Team",
+        "options": {}
+      },
+      "name": "[05] Send Reminder Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [960, 1340]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dead-letter-alert",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "[05] Webhook Dead Letter Alert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 1580],
+      "webhookId": "cv-screener-dead-letter-alerts"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://phentermine-assessed-exclude-she.trycloudflare.com/api/audit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "demo_shared_secret_2026"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "action",
+              "value": "AUTOMATION_ERROR_LOGGED"
+            },
+            {
+              "name": "entityType",
+              "value": "dead_letter_queue"
+            },
+            {
+              "name": "entityId",
+              "value": "={{ $json.body.referenceId || 'stuck_process' }}"
+            },
+            {
+              "name": "userName",
+              "value": "n8n Dead Letter Engine"
+            },
+            {
+              "name": "details",
+              "value": "={{ $json.body }}"
+            }
+          ]
+        }
+      },
+      "name": "[05] Log Error to Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [520, 1580]
+    }
+  ],
+  "connections": {
+    "[01] Batch Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "[01] Verify Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[01] Verify Secret": {
+      "main": [
+        [
+          {
+            "node": "[01] Split Each CV",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "[01] Stop Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[01] Split Each CV": {
+      "main": [
+        [
+          {
+            "node": "[01] Screen Candidate Endpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[02] Webhook Approved Invites": {
+      "main": [
+        [
+          {
+            "node": "[02] Split Invitations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[02] Split Invitations": {
+      "main": [
+        [
+          {
+            "node": "[02] Validate Recipient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[02] Validate Recipient": {
+      "main": [
+        [
+          {
+            "node": "[02] Send Email Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[02] Send Email Notification": {
+      "main": [
+        [
+          {
+            "node": "[02] Confirm Delivery Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[03] Cron Poll Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "[03] Fetch Google Sheet Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[03] Fetch Google Sheet Rows": {
+      "main": [
+        [
+          {
+            "node": "[03] Filter Valid Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[03] Filter Valid Emails": {
+      "main": [
+        [
+          {
+            "node": "[03] Sync Result to App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[04] Webhook Interview Request": {
+      "main": [
+        [
+          {
+            "node": "[04] Check Google Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[04] Check Google Auth": {
+      "main": [
+        [
+          {
+            "node": "[04] Create Calendar Event & Meet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[04] Create Calendar Event & Meet": {
+      "main": [
+        [
+          {
+            "node": "[04] Update Interview In App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[05] Daily Reminder Schedule": {
+      "main": [
+        [
+          {
+            "node": "[05] Fetch Overdue Assessments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[05] Fetch Overdue Assessments": {
+      "main": [
+        [
+          {
+            "node": "[05] Split Overdue Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[05] Split Overdue Items": {
+      "main": [
+        [
+          {
+            "node": "[05] Send Reminder Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[05] Webhook Dead Letter Alert": {
+      "main": [
+        [
+          {
+            "node": "[05] Log Error to Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

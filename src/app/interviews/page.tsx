@@ -11,14 +11,17 @@ import {
   CheckCircle2, 
   Plus, 
   User, 
-  ExternalLink,
+  ExternalLink, 
   RefreshCw,
   Globe,
   Lock,
-  BadgeAlert
+  BadgeAlert,
+  CalendarCheck
 } from 'lucide-react';
+import { useToast } from '@/components/ui/Toast';
 
 export default function InterviewsPage() {
+  const { toast } = useToast();
   const [interviews, setInterviews] = useState<any[]>([]);
   const [interviewers, setInterviewers] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
@@ -78,13 +81,14 @@ export default function InterviewsPage() {
       const res = await fetch('/api/interviews/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ applicationId: appId, approvedBy: 'Admin Sarah Connor' })
+        body: JSON.stringify({ applicationId: appId, approvedBy: 'Recruitment Admin' })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Approval failed');
+      toast.success('Candidate approved for final interview scheduling.', 'Interview Approved');
       await fetchData();
     } catch (err: unknown) {
-      alert(`Approval failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(err instanceof Error ? err.message : String(err), 'Approval Error');
     } finally {
       setActionLoading(false);
     }
@@ -136,17 +140,15 @@ export default function InterviewsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <span>Interview Management & Coordination</span>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-              Round 2 Pipeline
-            </span>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <span>Interview Coordination</span>
+            <span className="app-badge">Round 2 Pipeline</span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
             Coordinate technical interviews with real-time conflict checking, Google Calendar/Meet integration, and manual scheduling fallback.
           </p>
         </div>
@@ -158,7 +160,7 @@ export default function InterviewsPage() {
             setScheduledStart(nextWeek.toISOString().slice(0, 16));
             setShowScheduleModal(true);
           }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/20 transition-all hover:scale-[1.02]"
+          className="btn-primary"
         >
           <Calendar className="w-4 h-4" />
           <span>Schedule New Interview</span>
@@ -167,32 +169,32 @@ export default function InterviewsPage() {
 
       {/* Integration Status & Human Approval Banner */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="glass-card p-4 rounded-xl border border-slate-800 text-xs space-y-2">
+        <div className="app-card p-4 text-xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-              <Globe className="w-4 h-4 text-cyan-400" />
-              <span>Google Calendar Connection Status</span>
+            <span className="font-semibold flex items-center gap-1.5">
+              <Globe className="w-4 h-4 text-blue-500" />
+              <span>Google Calendar Integration</span>
             </span>
-            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700">
+            <span className="app-badge text-[10px]">
               Manual Mode Active
             </span>
           </div>
-          <p className="text-slate-400 text-[11px] leading-relaxed">
+          <p className="text-neutral-500 dark:text-neutral-400 text-[11px] leading-relaxed">
             When Google Cloud OAuth credentials are configured, the platform queries live free/busy availability and generates verified Google Meet links. In zero-budget demonstration mode, manual scheduling with built-in conflict checks is fully supported.
           </p>
         </div>
 
-        <div className="glass-card p-4 rounded-xl border border-slate-800 text-xs space-y-2">
+        <div className="app-card p-4 text-xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Round 2 Admin Approval Policy</span>
+            <span className="font-semibold flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              <span>Round 2 Recruiter Approval Policy</span>
             </span>
-            <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+            <span className="app-badge text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
               Enforced
             </span>
           </div>
-          <p className="text-slate-400 text-[11px] leading-relaxed">
+          <p className="text-neutral-500 dark:text-neutral-400 text-[11px] leading-relaxed">
             Candidates who successfully pass technical assessments must receive explicit human approval before a second-round interview booking can be dispatched.
           </p>
         </div>
@@ -200,24 +202,24 @@ export default function InterviewsPage() {
 
       {/* Candidates Awaiting Round 2 Approval */}
       {applications.filter(a => a.assessment_status === 'PASSED' && a.interview_status === 'AWAITING_APPROVAL').length > 0 && (
-        <div className="glass-card p-4 rounded-xl border border-amber-500/30 bg-amber-950/10 space-y-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
-            <BadgeAlert className="w-4 h-4 text-amber-400" />
+        <div className="app-card p-4 border-amber-500/30 bg-amber-500/5 space-y-3">
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
+            <BadgeAlert className="w-4 h-4 text-amber-500" />
             <span>Candidates Passed Assessment — Awaiting Round 2 Interview Approval:</span>
           </div>
           <div className="space-y-2">
             {applications
               .filter(a => a.assessment_status === 'PASSED' && a.interview_status === 'AWAITING_APPROVAL')
               .map((app) => (
-                <div key={app.id} className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 flex items-center justify-between text-xs">
+                <div key={app.id} className="p-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex items-center justify-between text-xs">
                   <div>
-                    <div className="font-semibold text-slate-200">{app.candidate?.first_name} {app.candidate?.last_name}</div>
-                    <div className="text-[11px] text-slate-400">{app.candidate?.email} • Assessment: {app.assessment_assignment?.percentage_score}%</div>
+                    <div className="font-semibold">{app.candidate?.first_name} {app.candidate?.last_name}</div>
+                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400">{app.candidate?.email} • Assessment: {app.assessment_assignment?.percentage_score}%</div>
                   </div>
                   <button
                     onClick={() => handleApproveForInterview(app.id)}
                     disabled={actionLoading}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all flex items-center gap-1.5"
+                    className="btn-primary bg-emerald-600 hover:bg-emerald-500 py-1.5 px-3"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>Approve for Interview</span>
@@ -229,14 +231,14 @@ export default function InterviewsPage() {
       )}
 
       {/* Interviews Table */}
-      <div className="glass-card rounded-2xl border border-slate-800/90 overflow-hidden">
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-          <span className="text-xs font-semibold text-slate-300">
+      <div className="app-card overflow-hidden">
+        <div className="p-3.5 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between bg-neutral-50 dark:bg-neutral-900/50">
+          <span className="text-xs font-semibold">
             Scheduled Interviews ({interviews.length})
           </span>
           <button
             onClick={fetchData}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
+            className="btn-secondary py-1 px-2.5 text-xs"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
@@ -245,7 +247,7 @@ export default function InterviewsPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+            <thead className="text-neutral-500 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
               <tr>
                 <th className="py-3 px-4 font-medium">Candidate</th>
                 <th className="py-3 px-4 font-medium">Interviewer</th>
@@ -256,10 +258,10 @@ export default function InterviewsPage() {
                 <th className="py-3 px-4 font-medium">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
               {interviews.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-500">
+                  <td colSpan={7} className="text-center py-10 text-neutral-400">
                     No interviews scheduled yet. Click &quot;Schedule New Interview&quot; above to book a candidate.
                   </td>
                 </tr>
@@ -272,30 +274,26 @@ export default function InterviewsPage() {
                   });
 
                   return (
-                    <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
-                      <td className="py-3 px-4 font-medium text-slate-200">
+                    <tr key={item.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-900/40 transition-colors">
+                      <td className="py-3 px-4 font-medium">
                         <div>{item.candidate?.first_name} {item.candidate?.last_name}</div>
-                        <div className="text-[11px] text-slate-400">{item.candidate?.email}</div>
+                        <div className="text-[11px] text-neutral-500 dark:text-neutral-400">{item.candidate?.email}</div>
                       </td>
-                      <td className="py-3 px-4 text-slate-300">
+                      <td className="py-3 px-4 text-neutral-600 dark:text-neutral-300">
                         <div className="flex items-center gap-1.5">
-                          <User className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>{item.interviewer_name || 'Sarah Connor'}</span>
+                          <User className="w-3.5 h-3.5 text-blue-500" />
+                          <span>{item.interviewer_name || 'Hiring Lead'}</span>
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-slate-300">
+                      <td className="py-3 px-4 text-neutral-600 dark:text-neutral-300">
                         <div>{dateStr}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{item.timezone}</div>
+                        <div className="text-[10px] text-neutral-400 font-mono">{item.timezone}</div>
                       </td>
-                      <td className="py-3 px-4 text-slate-300">
+                      <td className="py-3 px-4 text-neutral-600 dark:text-neutral-300">
                         <span>{item.duration_minutes} mins</span>
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          item.scheduling_mode === 'GOOGLE_CALENDAR'
-                            ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
-                            : 'bg-slate-800 text-slate-300 border border-slate-700'
-                        }`}>
+                        <span className="app-badge text-[10px]">
                           {item.scheduling_mode}
                         </span>
                       </td>
@@ -305,18 +303,27 @@ export default function InterviewsPage() {
                             href={item.meeting_url}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-900 text-indigo-400 hover:text-indigo-300 text-[11px] border border-slate-800"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-200 dark:border-neutral-800 text-blue-600 dark:text-blue-400 hover:underline text-[11px]"
                           >
-                            <Video className="w-3 h-3 text-emerald-400" />
-                            <span>Join Meeting</span>
+                            {item.meeting_url.includes('calendly.com') ? (
+                              <>
+                                <CalendarCheck className="w-3 h-3 text-blue-500" />
+                                <span>Calendly</span>
+                              </>
+                            ) : (
+                              <>
+                                <Video className="w-3 h-3 text-emerald-500" />
+                                <span>Join</span>
+                              </>
+                            )}
                             <ExternalLink className="w-2.5 h-2.5" />
                           </a>
                         ) : (
-                          <span className="text-slate-500">None</span>
+                          <span className="text-neutral-400">None</span>
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
+                        <span className="inline-flex px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
                           {item.booking_status}
                         </span>
                       </td>
@@ -332,35 +339,35 @@ export default function InterviewsPage() {
       {/* Schedule Interview Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass-card max-w-lg w-full p-6 rounded-2xl border border-slate-700 bg-slate-900 space-y-4">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-indigo-400" />
+          <div className="app-card max-w-lg w-full p-6 space-y-4">
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-blue-500" />
               <span>Book Round 2 Technical Interview</span>
             </h3>
 
             {/* Error Alert */}
             {schedulingError && (
-              <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
                 <span>{schedulingError}</span>
               </div>
             )}
 
             {/* Success Alert */}
             {schedulingSuccess && (
-              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                 <span>Interview successfully booked without conflicts!</span>
               </div>
             )}
 
             {/* Candidate Selector */}
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Candidate</label>
+              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Candidate</label>
               <select
                 value={selectedAppId}
                 onChange={(e) => setSelectedAppId(e.target.value)}
-                className="w-full text-xs rounded-lg glass-input p-2.5 bg-slate-950 border border-slate-700 text-slate-200"
+                className="w-full text-xs app-input p-2.5"
               >
                 <option value="">-- Choose Candidate --</option>
                 {applications.map((a) => (
@@ -373,11 +380,11 @@ export default function InterviewsPage() {
 
             {/* Interviewer Selector */}
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Interviewer</label>
+              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Interviewer</label>
               <select
                 value={selectedInterviewerId}
                 onChange={(e) => setSelectedInterviewerId(e.target.value)}
-                className="w-full text-xs rounded-lg glass-input p-2.5 bg-slate-950 border border-slate-700 text-slate-200"
+                className="w-full text-xs app-input p-2.5"
               >
                 {interviewers.map((i) => (
                   <option key={i.id} value={i.id}>
@@ -390,20 +397,20 @@ export default function InterviewsPage() {
             {/* Date/Time & Duration */}
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-slate-400">Start Date & Time</label>
+                <label className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">Start Date & Time</label>
                 <input
                   type="datetime-local"
                   value={scheduledStart}
                   onChange={(e) => setScheduledStart(e.target.value)}
-                  className="w-full rounded glass-input p-2 bg-slate-950 border border-slate-700 text-slate-200"
+                  className="w-full rounded app-input p-2"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-slate-400">Duration (Minutes)</label>
+                <label className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">Duration (Minutes)</label>
                 <select
                   value={durationMinutes}
                   onChange={(e) => setDurationMinutes(e.target.value)}
-                  className="w-full rounded glass-input p-2 bg-slate-950 border border-slate-700 text-slate-200"
+                  className="w-full rounded app-input p-2"
                 >
                   <option value="30">30 minutes</option>
                   <option value="45">45 minutes</option>
@@ -415,11 +422,11 @@ export default function InterviewsPage() {
             {/* Timezone & Mode */}
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-slate-400">Timezone</label>
+                <label className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">Timezone</label>
                 <select
                   value={timezone}
                   onChange={(e) => setTimezone(e.target.value)}
-                  className="w-full rounded glass-input p-2 bg-slate-950 border border-slate-700 text-slate-200"
+                  className="w-full rounded app-input p-2"
                 >
                   <option value="America/New_York">America/New_York (EST)</option>
                   <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
@@ -428,11 +435,11 @@ export default function InterviewsPage() {
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-slate-400">Scheduling Mode</label>
+                <label className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">Scheduling Mode</label>
                 <select
                   value={schedulingMode}
                   onChange={(e) => setSchedulingMode(e.target.value as any)}
-                  className="w-full rounded glass-input p-2 bg-slate-950 border border-slate-700 text-slate-200"
+                  className="w-full rounded app-input p-2"
                 >
                   <option value="MANUAL">Manual Scheduling</option>
                   <option value="GOOGLE_CALENDAR">Google Calendar & Meet</option>
@@ -442,30 +449,30 @@ export default function InterviewsPage() {
 
             {/* Meeting Link */}
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Meeting Link (Optional)</label>
+              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Meeting Link (Optional)</label>
               <input
                 type="text"
                 placeholder="https://meet.google.com/abc-defg-hij"
                 value={customMeetingUrl}
                 onChange={(e) => setCustomMeetingUrl(e.target.value)}
-                className="w-full text-xs rounded glass-input p-2 bg-slate-950 border border-slate-700 text-slate-200 placeholder-slate-600"
+                className="w-full text-xs rounded app-input p-2"
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
               <button
                 onClick={() => {
                   setShowScheduleModal(false);
                   setSchedulingError(null);
                 }}
-                className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-medium"
+                className="btn-secondary"
               >
                 Cancel
               </button>
               <button
                 onClick={handleScheduleSubmit}
                 disabled={actionLoading}
-                className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 disabled:opacity-50"
+                className="btn-primary disabled:opacity-50"
               >
                 {actionLoading ? 'Checking Conflicts...' : 'Confirm Booking'}
               </button>

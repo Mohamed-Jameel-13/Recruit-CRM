@@ -2,79 +2,88 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  LayoutDashboard, 
-  Briefcase, 
-  UploadCloud, 
-  Users, 
-  Sparkles, 
-  FileCheck2, 
-  CalendarClock, 
-  BarChart3, 
-  Workflow, 
-  ShieldAlert,
-  BrainCircuit,
-  Bot
+import {
+  LayoutDashboard,
+  Briefcase,
+  UploadCloud,
+  Users,
+  FileCheck2,
+  CalendarClock,
+  Zap,
+  Sliders,
+  Workflow,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
+  { href: '/upload', label: 'Launch Pipeline', icon: Zap, badge: 'AI', primary: true },
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/jobs', label: 'Jobs & Criteria', icon: Briefcase },
-  { href: '/upload', label: 'Upload CV Batches', icon: UploadCloud },
+  { href: '/assessments', label: 'Assessment Hub', icon: FileCheck2 },
+  { href: '/interviews', label: 'Interviews & Meet', icon: CalendarClock },
   { href: '/candidates', label: 'Candidates', icon: Users },
-  { href: '/screening', label: 'Screening Review', icon: Sparkles, badge: 'AI' },
-  { href: '/assessments', label: 'Assessments & CSV', icon: FileCheck2 },
-  { href: '/interviews', label: 'Interviews & Calendar', icon: CalendarClock },
-  { href: '/analytics', label: 'Live Analytics', icon: BarChart3 },
-  { href: '/integrations', label: 'n8n & Integrations', icon: Workflow },
-  { href: '/audit', label: 'Audit Activity', icon: ShieldAlert },
+  { href: '/jobs', label: 'Jobs & Criteria', icon: Briefcase },
+  { href: '/settings', label: 'Settings & LLM', icon: Sliders, badge: 'AI' },
+  { href: '/integrations', label: 'Workflows & n8n', icon: Workflow },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 glass-panel border-r border-slate-800/80 min-h-screen flex flex-col fixed left-0 top-0 z-30">
-      {/* Platform Branding */}
-      <div className="p-5 border-b border-slate-800/80 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-          <BrainCircuit className="w-5 h-5 text-white" />
-        </div>
-        <div>
-          <h1 className="font-bold text-slate-100 text-sm tracking-wide flex items-center gap-1.5">
+    <aside className="w-60 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] min-h-screen flex flex-col fixed left-0 top-0 z-30 transition-colors">
+      {/* Brand */}
+      <div className="h-14 px-4 border-b border-[var(--border-subtle)] flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-md bg-[var(--text-primary)] text-[var(--bg-page)] flex items-center justify-center font-bold text-sm shadow-sm">
+            R
+          </div>
+          <span className="font-bold text-sm tracking-tight text-[var(--text-primary)]">
             RecruitAI
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
-              v1.0
-            </span>
-          </h1>
-          <p className="text-xs text-slate-400">Zero-Budget Automation</p>
-        </div>
+          </span>
+        </Link>
+        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-muted)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
+          v2.0
+        </span>
       </div>
 
-      {/* Navigation Links */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        <div className="px-3 pb-2 text-[11px] font-semibold tracking-wider uppercase text-slate-300">
-          Recruitment Pipeline
+      {/* Navigation */}
+      <nav className="flex-1 px-2.5 py-4 space-y-0.5 overflow-y-auto">
+        <div className="px-2 pb-2 text-[10px] font-semibold tracking-wider uppercase text-[var(--text-muted)]">
+          Hiring Pipeline
         </div>
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;
+          const isPrimary = item.primary;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                isActive
-                  ? 'bg-gradient-to-r from-indigo-600/30 to-indigo-500/10 text-indigo-300 border-l-2 border-indigo-500'
-                  : 'text-slate-200 hover:text-white hover:bg-slate-800/50'
+              className={`flex items-center justify-between px-2.5 py-2 rounded-md text-xs font-medium transition-all ${
+                isPrimary && !isActive
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : isActive
+                  ? 'bg-[var(--bg-muted)] text-[var(--text-primary)] font-semibold border-l-2 border-[var(--accent)] pl-2'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]'
               }`}
             >
-              <div className="flex items-center gap-3">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
+              <div className="flex items-center gap-2.5">
+                <Icon
+                  className={`w-4 h-4 ${
+                    isPrimary && !isActive
+                      ? 'text-amber-300'
+                      : isActive
+                      ? 'text-[var(--accent)]'
+                      : 'text-[var(--text-muted)]'
+                  }`}
+                />
                 <span>{item.label}</span>
               </div>
               {item.badge && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-semibold">
+                <span className={`text-[9px] px-1.5 rounded font-mono border font-semibold ${
+                  isPrimary && !isActive
+                    ? 'bg-white/20 text-white border-white/30'
+                    : 'bg-blue-500/10 text-blue-500 dark:text-blue-400 border-blue-500/20'
+                }`}>
                   {item.badge}
                 </span>
               )}
@@ -83,30 +92,25 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Semantic Intelligence Notice */}
-      <div className="p-3 mx-3 mb-4 rounded-xl glass-card border border-indigo-500/20 bg-indigo-950/20">
-        <div className="flex items-center gap-2 mb-1">
-          <Bot className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="text-xs font-semibold text-indigo-300">Semantic Matching</span>
+      {/* Pipeline Summary */}
+      <div className="p-3 mx-2.5 mb-3 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-secondary)] space-y-1">
+        <div className="font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+          <UploadCloud className="w-3.5 h-3.5 text-blue-500" />
+          <span>Fully Autonomous</span>
         </div>
-        <p className="text-[11px] text-slate-200 leading-relaxed">
-          Screening uses transferable reasoning (e.g., MySQL <span className="text-cyan-400 font-mono">⇄</span> PostgreSQL, Vue <span className="text-cyan-400 font-mono">⇄</span> React) to prevent false score drops.
+        <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+          Upload CVs → AI screens → Assessment sent → Auto-graded → Interview booked with real Meet link.
         </p>
       </div>
 
-      {/* User / Org Footer */}
-      <div className="p-4 border-t border-slate-800/80 flex items-center justify-between bg-slate-950/40">
-        <div className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-8 h-8 rounded-lg bg-indigo-950 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300">
-            SC
-          </div>
-          <div className="truncate">
-            <p className="text-xs font-medium text-slate-200 truncate">Sarah Connor</p>
-            <p className="text-[10px] text-emerald-400 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              Admin • Acme Cloud
-            </p>
-          </div>
+      {/* Footer */}
+      <div className="p-3 border-t border-[var(--border-subtle)] flex items-center gap-2.5 bg-[var(--bg-subtle)] text-xs">
+        <div className="w-7 h-7 rounded-full bg-[var(--border-strong)] text-[var(--text-primary)] font-semibold flex items-center justify-center text-[10px]">
+          SC
+        </div>
+        <div className="truncate">
+          <div className="font-medium text-[var(--text-primary)] truncate text-[11px]">Sarah Connor</div>
+          <div className="text-[10px] text-[var(--text-muted)]">Lead Administrator</div>
         </div>
       </div>
     </aside>

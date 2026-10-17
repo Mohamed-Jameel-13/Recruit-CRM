@@ -53,28 +53,26 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header & Filter */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <span>Database-Backed Recruitment Analytics</span>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
-              Verified Persisted Data
-            </span>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <span>Recruitment Analytics & Insights</span>
+            <span className="app-badge">Verified Persisted Data</span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
             Real-time pipeline metrics calculated directly from database records without inflated placeholders.
           </p>
         </div>
 
         {/* Job Requisition Filter */}
         <div className="flex items-center gap-2">
-          <Filter className="w-3.5 h-3.5 text-slate-400" />
+          <Filter className="w-3.5 h-3.5 text-neutral-400" />
           <select
             value={selectedJobId}
             onChange={(e) => handleFilterChange(e.target.value)}
-            className="text-xs rounded-lg glass-input px-3 py-2 bg-slate-900 border border-slate-800 text-slate-200"
+            className="text-xs app-input px-3 py-2"
           >
             <option value="all">All Jobs Combined</option>
             {jobs.map((j) => (
@@ -86,80 +84,80 @@ export default function AnalyticsPage() {
 
           <button
             onClick={() => fetchAnalytics(selectedJobId)}
-            className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
+            className="btn-secondary p-2"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Primary KPI Grid (12 required metrics) */}
+      {/* Primary KPI Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Total Jobs */}
-        <div className="glass-card p-4 rounded-xl border border-slate-800">
-          <div className="text-xs text-slate-400">Total Jobs Active</div>
-          <div className="text-2xl font-bold text-white mt-1">{analytics?.totalJobs ?? 0}</div>
-          <div className="text-[10px] text-slate-500 mt-1">Current hiring requisitions</div>
+        <div className="app-card p-4 space-y-1">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Total Jobs Active</div>
+          <div className="text-2xl font-bold tracking-tight">{analytics?.totalJobs ?? 0}</div>
+          <div className="text-[10px] text-neutral-400">Current requisitions</div>
         </div>
 
         {/* CVs Uploaded */}
-        <div className="glass-card p-4 rounded-xl border border-slate-800">
-          <div className="text-xs text-slate-400">Total CVs Uploaded</div>
-          <div className="text-2xl font-bold text-indigo-400 mt-1">{analytics?.totalCVsUploaded ?? 0}</div>
-          <div className="text-[10px] text-emerald-400 mt-1">{analytics?.cvsParsedSuccessfully ?? 0} parsed successfully</div>
+        <div className="app-card p-4 space-y-1">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Total CVs Uploaded</div>
+          <div className="text-2xl font-bold tracking-tight text-blue-600 dark:text-blue-400">{analytics?.totalCVsUploaded ?? 0}</div>
+          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">{analytics?.cvsParsedSuccessfully ?? 0} parsed successfully</div>
         </div>
 
         {/* Processing Failures */}
-        <div className="glass-card p-4 rounded-xl border border-slate-800">
-          <div className="text-xs text-slate-400">Extraction Failures</div>
-          <div className="text-2xl font-bold text-rose-400 mt-1">{analytics?.processingFailures ?? 0}</div>
-          <div className="text-[10px] text-slate-500 mt-1">Flagged for retry</div>
+        <div className="app-card p-4 space-y-1">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Extraction Failures</div>
+          <div className="text-2xl font-bold tracking-tight text-rose-600 dark:text-rose-400">{analytics?.processingFailures ?? 0}</div>
+          <div className="text-[10px] text-neutral-400">Flagged for retry</div>
         </div>
 
         {/* Screening Completed */}
-        <div className="glass-card p-4 rounded-xl border border-slate-800">
-          <div className="text-xs text-slate-400">Screening Completed</div>
-          <div className="text-2xl font-bold text-cyan-400 mt-1">{analytics?.screeningCompleted ?? 0}</div>
-          <div className="text-[10px] text-slate-500 mt-1">AI evaluations stored</div>
+        <div className="app-card p-4 space-y-1">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Screening Completed</div>
+          <div className="text-2xl font-bold tracking-tight">{analytics?.screeningCompleted ?? 0}</div>
+          <div className="text-[10px] text-neutral-400">AI evaluations stored</div>
         </div>
 
         {/* Candidates Awaiting Approval */}
-        <div className="glass-card p-4 rounded-xl border border-slate-800">
-          <div className="text-xs text-slate-400">Awaiting Assessment Approval</div>
-          <div className="text-2xl font-bold text-amber-400 mt-1">{analytics?.candidatesAwaitingApproval ?? 0}</div>
-          <div className="text-[10px] text-slate-500 mt-1">Human review pending</div>
+        <div className="app-card p-4 space-y-1">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Awaiting Assessment Approval</div>
+          <div className="text-2xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{analytics?.candidatesAwaitingApproval ?? 0}</div>
+          <div className="text-[10px] text-neutral-400">Human review pending</div>
         </div>
 
         {/* Approved Invitations */}
-        <div className="glass-card p-4 rounded-xl border border-slate-800">
-          <div className="text-xs text-slate-400">Approved Invitations</div>
-          <div className="text-2xl font-bold text-emerald-400 mt-1">{analytics?.approvedAssessmentInvitations ?? 0}</div>
-          <div className="text-[10px] text-slate-500 mt-1">Dispatched to candidates</div>
+        <div className="app-card p-4 space-y-1">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Approved Invitations</div>
+          <div className="text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{analytics?.approvedAssessmentInvitations ?? 0}</div>
+          <div className="text-[10px] text-neutral-400">Dispatched to candidates</div>
         </div>
 
         {/* Assessment Pass Rate */}
-        <div className="glass-card p-4 rounded-xl border border-slate-800">
-          <div className="text-xs text-slate-400">Assessment Pass Rate</div>
-          <div className="text-2xl font-bold text-emerald-400 mt-1">{analytics?.assessmentPassRate ?? 0}%</div>
-          <div className="text-[10px] text-slate-400 mt-1">Denominator: Evaluated only</div>
+        <div className="app-card p-4 space-y-1">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Assessment Pass Rate</div>
+          <div className="text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{analytics?.assessmentPassRate ?? 0}%</div>
+          <div className="text-[10px] text-neutral-400">Evaluated candidates</div>
         </div>
 
         {/* Interviews Scheduled */}
-        <div className="glass-card p-4 rounded-xl border border-slate-800">
-          <div className="text-xs text-slate-400">Round 2 Interviews</div>
-          <div className="text-2xl font-bold text-indigo-400 mt-1">{analytics?.interviewsScheduled ?? 0}</div>
-          <div className="text-[10px] text-slate-500 mt-1">Scheduled bookings</div>
+        <div className="app-card p-4 space-y-1">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Round 2 Interviews</div>
+          <div className="text-2xl font-bold tracking-tight text-blue-600 dark:text-blue-400">{analytics?.interviewsScheduled ?? 0}</div>
+          <div className="text-[10px] text-neutral-400">Scheduled bookings</div>
         </div>
       </div>
 
       {/* Recruitment Funnel Visual */}
-      <div className="glass-card p-6 rounded-2xl border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div className="app-card p-6 space-y-4">
+        <div className="flex items-center justify-between border-b pb-3 border-neutral-200 dark:border-neutral-800">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-indigo-400" />
-            <h2 className="text-sm font-semibold text-white">Conversion Funnel Drop-off Analysis</h2>
+            <TrendingUp className="w-4 h-4 text-blue-500" />
+            <h2 className="text-sm font-semibold">Conversion Funnel Drop-off Analysis</h2>
           </div>
-          <span className="text-xs text-slate-400">Derived strictly from actual database entities</span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">Derived strictly from active database entities</span>
         </div>
 
         <div className="space-y-4 pt-2">
@@ -169,13 +167,13 @@ export default function AnalyticsPage() {
             return (
               <div key={i} className="space-y-1.5">
                 <div className="flex justify-between text-xs">
-                  <span className="font-medium text-slate-300">{step.stage}</span>
-                  <span className="font-bold text-white">{step.count} candidates</span>
+                  <span className="font-medium text-neutral-700 dark:text-neutral-300">{step.stage}</span>
+                  <span className="font-bold">{step.count} candidates</span>
                 </div>
-                <div className="w-full h-3 bg-slate-900 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                <div className="w-full h-2 rounded-full overflow-hidden bg-neutral-100 dark:bg-neutral-800">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 transition-all duration-700"
-                    style={{ width: `${Math.max(pct, 5)}%` }}
+                    className="h-full rounded-full bg-blue-600 dark:bg-blue-500 transition-all duration-500"
+                    style={{ width: `${Math.max(pct, 4)}%` }}
                   />
                 </div>
               </div>

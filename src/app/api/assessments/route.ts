@@ -4,6 +4,7 @@ import { db } from '@/lib/db/repository';
 export async function GET() {
   const assessments = db.getAssessments();
   const applications = db.getApplications();
+  const interviews = db.getInterviews();
 
   const joined = assessments.map(assess => {
     const app = applications.find(a => a.id === assess.application_id);
@@ -15,5 +16,10 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ assessments: joined });
+  return NextResponse.json({ 
+    assessments: joined,
+    // Also expose raw arrays for polling in the upload page tracker
+    assignments: assessments,
+    interviews
+  });
 }

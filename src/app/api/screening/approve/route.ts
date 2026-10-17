@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
+import { emailDispatcher } from '@/lib/email/dispatcher';
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,8 +20,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Application not found.' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, application: updated });
+    // Automatically send assessment form invitation email to candidate
+    const candidate = updated.candidate;
+    const job = updated.job;
+    const assignment = db.getAssessmentByApplicationId(applicationId);
+
+    let emailSent = null;
+    if (candidate && assignment) {
+      emailSent = emailDispatcher.sendAssessmentInvitation({
+        applicationId,
+        candidateEmail: candidate.email,
+        candidateName: `${candidate.first_name} ${candidate.last_name}`.trim(),
+        jobTitle: job?.title || 'Senior Full-Stack Cloud Engineer',
+        testUrl: assignment.assessment_url || `/assessment/take/${assignment.id}`,
+        passThreshold: assignment.pass_threshold_percentage || 70
+      });
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      application: updated, 
+      assignment,
+      emailSent: !!emailSent,
+      emailReceipt: emailSent 
+    });
   } catch (err: unknown) {
-    return NextResponse.json({ error: 'Failed to approve application', details: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to approve application', 
+      details: err instanceof Error ? err.message : String(err) 
+    }, { status: 500 });
   }
 }

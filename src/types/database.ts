@@ -66,6 +66,8 @@ export interface Job {
   created_at: string;
   updated_at: string;
   criteria?: ScreeningCriteria;
+  calendly_link?: string;
+  assessment_config_id?: string;
 }
 
 export type BatchStatus = 'queued' | 'processing' | 'completed' | 'partial_failure' | 'failed';
@@ -216,6 +218,7 @@ export type AssessmentAssignmentStatus =
 export interface AssessmentAssignment {
   id: string;
   application_id: string;
+  config_id?: string;
   assessment_type: AssessmentType;
   assessment_url?: string;
   due_date?: string;
@@ -281,6 +284,7 @@ export interface Interview {
   booking_status: InterviewBookingStatus;
   google_event_id?: string;
   meeting_url?: string;
+  calendly_url?: string;
   interviewer_feedback?: string;
   interview_score?: number;
   created_by?: string;
@@ -324,3 +328,63 @@ export interface RetentionDeletionRequest {
   created_at: string;
   completed_at?: string;
 }
+
+export interface SentEmail {
+  id: string;
+  recipient_email: string;
+  recipient_name: string;
+  subject: string;
+  body_html: string;
+  template_type: 'ASSESSMENT_INVITATION' | 'ROUND_2_INTERVIEW_INVITATION' | 'REJECTION';
+  metadata?: Record<string, unknown>;
+  sent_at: string;
+}
+
+export type AssessmentQuestionType = 'mcq' | 'subjective' | 'coding';
+
+export interface AssessmentTestCase {
+  input: string;
+  expected_output: string;
+  description?: string;
+  is_hidden?: boolean;
+}
+
+export interface AssessmentQuestion {
+  id: string;
+  type: AssessmentQuestionType;
+  title: string;
+  category: string;
+  description: string;
+  points: number;
+  options?: string[];
+  correct_option_index?: number;
+  explanation?: string;
+  placeholder?: string;
+  rubric?: string;
+  sample_pass_answer?: string;
+  sample_fail_answer?: string;
+  // Enhanced fields for coding challenges
+  language?: string;
+  starter_code?: string;
+  test_cases?: AssessmentTestCase[];
+  hints?: string[];
+}
+
+export interface AssessmentConfig {
+  id: string;
+  role?: string;
+  mode: 'INBUILT' | 'EXTERNAL_URL';
+  external_url?: string;
+  title: string;
+  description?: string;
+  duration_minutes: number;
+  pass_threshold_percentage: number;
+  calendly_link?: string;
+  anti_cheat_enabled?: boolean;
+  webcam_required?: boolean;
+  screen_share_required?: boolean;
+  questions: AssessmentQuestion[];
+  created_at?: string;
+  updated_at?: string;
+}
+
