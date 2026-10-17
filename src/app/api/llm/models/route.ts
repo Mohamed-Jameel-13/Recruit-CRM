@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAvailableModels, getLLMConfigAsync } from '@/lib/llm/client';
+import { fetchAvailableModels, getLLMConfigAsync, sanitizeBaseUrl } from '@/lib/llm/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const result = await fetchAvailableModels({
       provider: body.provider || currentConfig.provider,
-      baseUrl: body.baseUrl || currentConfig.baseUrl,
+      baseUrl: sanitizeBaseUrl(body.baseUrl || currentConfig.baseUrl),
       apiKey: apiKey,
       model: body.model || currentConfig.model,
       customHeaders: body.customHeaders || currentConfig.customHeaders

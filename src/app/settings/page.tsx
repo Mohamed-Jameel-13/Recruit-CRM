@@ -29,6 +29,19 @@ import {
 import { useToast } from '@/components/ui/Toast';
 import { ProviderPreset, LLMProviderId } from '@/lib/llm/client';
 
+function cleanBaseUrl(url: string): string {
+  if (!url) return '';
+  let clean = url.trim();
+  clean = clean.replace(/\s+/g, '');
+  clean = clean.replace(/\/+$/, '');
+  clean = clean.replace(/\/chat\/completions\/?$/i, '');
+  clean = clean.replace(/\/v1\/messages\/?$/i, '/v1');
+  clean = clean.replace(/\/messages\/?$/i, '');
+  clean = clean.replace(/\/v1(?:\/v1)+$/i, '/v1');
+  clean = clean.replace(/\/v1v1$/i, '/v1');
+  return clean;
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
 
@@ -161,6 +174,9 @@ export default function SettingsPage() {
   async function handleFetchLiveModels() {
     setFetchingModels(true);
     try {
+      const sanitizedUrl = cleanBaseUrl(baseUrl);
+      setBaseUrl(sanitizedUrl);
+
       let customHeaders: Record<string, string> | undefined;
       if (customHeadersStr.trim()) {
         try {
@@ -175,7 +191,7 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
-          baseUrl,
+          baseUrl: sanitizedUrl,
           apiKey: apiKey.trim() || (hasKey ? '__KEEP_EXISTING__' : ''),
           customHeaders
         })
@@ -203,6 +219,9 @@ export default function SettingsPage() {
     setTestingLLM(true);
     setTestResult(null);
     try {
+      const sanitizedUrl = cleanBaseUrl(baseUrl);
+      setBaseUrl(sanitizedUrl);
+
       let customHeaders: Record<string, string> | undefined;
       if (customHeadersStr.trim()) {
         try {
@@ -219,7 +238,7 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
-          baseUrl,
+          baseUrl: sanitizedUrl,
           apiKey: apiKey.trim() || (hasKey ? '__KEEP_EXISTING__' : ''),
           model,
           temperature,
@@ -248,6 +267,9 @@ export default function SettingsPage() {
   async function handleSaveConfig() {
     setSavingLLM(true);
     try {
+      const sanitizedUrl = cleanBaseUrl(baseUrl);
+      setBaseUrl(sanitizedUrl);
+
       let customHeaders: Record<string, string> | undefined;
       if (customHeadersStr.trim()) {
         try {
@@ -261,7 +283,7 @@ export default function SettingsPage() {
 
       const payload: any = {
         provider,
-        baseUrl,
+        baseUrl: sanitizedUrl,
         model,
         temperature,
         maxTokens,
@@ -580,6 +602,7 @@ export default function SettingsPage() {
                   type="text"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
+                  onBlur={() => setBaseUrl(cleanBaseUrl(baseUrl))}
                   placeholder="https://api.openai.com/v1 or http://localhost:11434/v1"
                   className="w-full text-xs font-mono rounded-md app-input p-2.5 bg-[var(--bg-subtle)] border-[var(--border-subtle)] text-[var(--text-primary)]"
                 />

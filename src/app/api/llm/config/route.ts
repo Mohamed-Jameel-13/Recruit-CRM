@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLLMConfigAsync, saveLLMConfigAsync, PROVIDER_PRESETS } from '@/lib/llm/client';
+import { getLLMConfigAsync, saveLLMConfigAsync, sanitizeBaseUrl, PROVIDER_PRESETS } from '@/lib/llm/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +19,7 @@ export async function GET() {
   return NextResponse.json({
     config: {
       provider: config.provider,
-      baseUrl: config.baseUrl,
+      baseUrl: sanitizeBaseUrl(config.baseUrl),
       model: config.model,
       temperature: config.temperature,
       maxTokens: config.maxTokens || 4096,
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     const updated = await saveLLMConfigAsync({
       provider: body.provider,
-      baseUrl: body.baseUrl?.trim(),
+      baseUrl: sanitizeBaseUrl(body.baseUrl),
       apiKey: body.apiKey,
       clearApiKey: body.clearApiKey === true,
       model: body.model?.trim(),

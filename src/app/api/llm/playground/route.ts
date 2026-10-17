@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { callUniversalLLM, getLLMConfigAsync } from '@/lib/llm/client';
+import { callUniversalLLM, getLLMConfigAsync, sanitizeBaseUrl } from '@/lib/llm/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const testConfig = {
       provider: body.provider || currentConfig.provider,
-      baseUrl: body.baseUrl?.trim() || currentConfig.baseUrl,
+      baseUrl: sanitizeBaseUrl(body.baseUrl || currentConfig.baseUrl),
       apiKey: apiKey?.trim(),
       model: body.model?.trim() || currentConfig.model,
       temperature: body.temperature !== undefined ? parseFloat(body.temperature) : 0.1,

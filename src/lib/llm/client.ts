@@ -346,6 +346,26 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
   maxTokens: 4096
 };
 
+/**
+ * Sanitizes and normalizes an API Base URL:
+ * - Strips all internal whitespace, tabs, and newlines
+ * - Trims trailing slashes
+ * - Strips accidental /chat/completions or /messages from the base URL
+ * - Corrects accidental duplicated /v1 like /v1/v1 or /v1v1
+ */
+export function sanitizeBaseUrl(rawUrl: string): string {
+  if (!rawUrl) return '';
+  let clean = rawUrl.trim();
+  clean = clean.replace(/\s+/g, '');
+  clean = clean.replace(/\/+$/, '');
+  clean = clean.replace(/\/chat\/completions\/?$/i, '');
+  clean = clean.replace(/\/v1\/messages\/?$/i, '/v1');
+  clean = clean.replace(/\/messages\/?$/i, '');
+  clean = clean.replace(/\/v1(?:\/v1)+$/i, '/v1');
+  clean = clean.replace(/\/v1v1$/i, '/v1');
+  return clean;
+}
+
 function getEnvFallbackConfig(): LLMConfig {
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here') {
     return {
@@ -375,6 +395,7 @@ export async function getLLMConfigAsync(forceRefresh: boolean = false): Promise<
     const cloudConfig = await readFromSupabaseStorage();
     if (cloudConfig && cloudConfig.provider) {
       const merged: LLMConfig = { ...getEnvFallbackConfig(), ...cloudConfig };
+      if (merged.baseUrl) merged.baseUrl = sanitizeBaseUrl(merged.baseUrl);
       memoryConfigCache = merged;
       lastCacheSyncTime = now;
       writeToLocalDisk(merged);
@@ -386,6 +407,7 @@ export async function getLLMConfigAsync(forceRefresh: boolean = false): Promise<
   const diskConfig = readFromLocalDisk();
   if (diskConfig && diskConfig.provider) {
     const merged: LLMConfig = { ...getEnvFallbackConfig(), ...diskConfig };
+    if (merged.baseUrl) merged.baseUrl = sanitizeBaseUrl(merged.baseUrl);
     memoryConfigCache = merged;
     lastCacheSyncTime = now;
     if (!isTestEnv) {
@@ -451,6 +473,7 @@ export async function saveLLMConfigAsync(
   const updated: LLMConfig = {
     ...current,
     ...newConfig,
+    baseUrl: newConfig.baseUrl ? sanitizeBaseUrl(newConfig.baseUrl) : current.baseUrl,
     apiKey: apiKeyToSave,
   };
 
@@ -486,6 +509,7 @@ export function saveLLMConfig(newConfig: Partial<LLMConfig> & { clearApiKey?: bo
   const updated: LLMConfig = {
     ...current,
     ...newConfig,
+    baseUrl: newConfig.baseUrl ? sanitizeBaseUrl(newConfig.baseUrl) : current.baseUrl,
     apiKey: apiKeyToSave,
   };
 
@@ -645,10 +669,14 @@ export async function callUniversalLLM(
   }
 
   // 3. Universal OpenAI-Compatible API Protocol
-  // Works with OpenAI, Groq, OpenRouter, DeepSeek, Mistral, Ollama, LM Studio, vLLM, LiteLLM, etc.
-  let endpoint = config.baseUrl.trim();
+  // Works with OpenAI, Groq, OpenRouter, DeepSeek, Mistral, Ollama, LM Studio, vLLM, LiteLLM, OmniRoute, etc.
+  let endpoint = sanitizeBaseUrl(config.baseUrl);
   if (!endpoint.endsWith('/chat/completions')) {
-    endpoint = endpoint.replace(/\/+$/, '') + '/chat/completions';
+    if (!endpoint.endsWith('/v1') && !endpoint.includes('/v1/') && !endpoint.includes('/v1beta') && !endpoint.includes('/api/')) {
+      endpoint = endpoint + '/v1/chat/completions';
+    } else {
+      endpoint = endpoint + '/chat/completions';
+    }
   }
 
   const headers: Record<string, string> = {
@@ -722,7 +750,20 @@ export async function callUniversalLLM(
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`LLM API request to ${endpoint} failed (${res.status}): ${errText}`);
+      let cleanError = errText;
+      if (errText.trim().startsWith('<') || errText.includes('<html')) {
+        const titleMatch = errText.match(/<title>([^<]+)<\/title>/i);
+        const titleText = titleMatch ? titleMatch[1].trim() : '';
+        cleanError = `Endpoint returned HTTP ${res.status} (${res.statusText || 'Not Found'}). The path "${endpoint}" was not found. Please verify your Base URL is correct.${titleText ? ` (Server: ${titleText})` : ''}`;
+      } else {
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed.error?.message) {
+            cleanError = parsed.error.message;
+          }
+        } catch {}
+      }
+      throw new Error(`LLM API request failed (${res.status}): ${cleanError}`);
     }
 
     const data = await res.json();
@@ -796,7 +837,7 @@ export async function fetchAvailableModels(
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01'
         },
-        signal: AbortSignal.timeout(6000)
+        signal: AbortSignal.timeout(2500)
       });
       if (res.ok) {
         const data = await res.json();
@@ -809,7 +850,7 @@ export async function fetchAvailableModels(
     if (provider === 'gemini' || baseUrl.includes('generativelanguage.googleapis.com')) {
       if (!apiKey) return { success: false, error: 'API key required to list Gemini models', models: [] };
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
-        signal: AbortSignal.timeout(6000)
+        signal: AbortSignal.timeout(2500)
       });
       if (res.ok) {
         const data = await res.json();
@@ -820,10 +861,14 @@ export async function fetchAvailableModels(
       }
     }
 
-    // 4. Standard OpenAI-Compatible /models endpoint (OpenAI, Groq, OpenRouter, DeepSeek, Mistral, LM Studio)
-    let modelsEndpoint = baseUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/+$/, '');
+    // 4. Standard OpenAI-Compatible /models endpoint (OpenAI, Groq, OpenRouter, DeepSeek, Mistral, LM Studio, OmniRoute)
+    let modelsEndpoint = sanitizeBaseUrl(baseUrl);
     if (!modelsEndpoint.endsWith('/models')) {
-      modelsEndpoint += '/models';
+      if (!modelsEndpoint.endsWith('/v1') && !modelsEndpoint.includes('/v1/') && !modelsEndpoint.includes('/v1beta') && !modelsEndpoint.includes('/api/')) {
+        modelsEndpoint += '/v1/models';
+      } else {
+        modelsEndpoint += '/models';
+      }
     }
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -836,7 +881,7 @@ export async function fetchAvailableModels(
 
     const res = await fetch(modelsEndpoint, {
       headers,
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(2500)
     });
 
     if (res.ok) {
