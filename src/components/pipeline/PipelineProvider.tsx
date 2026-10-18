@@ -401,7 +401,13 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
 
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 65000);
+            const timeoutId = setTimeout(() => {
+              try {
+                controller.abort(new Error('Screening evaluation timed out on server. Please retry.'));
+              } catch {
+                controller.abort();
+              }
+            }, 90000);
 
             const headers: Record<string, string> = {};
             if (activeLlmConfigJson) headers['x-llm-config'] = activeLlmConfigJson;
@@ -461,9 +467,17 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
               aggregatedFailed.push({ fileName: file.name, error: errMsg });
             }
           } catch (fileErr: unknown) {
+            let errorMsg = 'Processing error';
+            if (fileErr instanceof Error) {
+              if (fileErr.name === 'AbortError' || fileErr.message.includes('aborted') || fileErr.message.includes('abort')) {
+                errorMsg = 'Screening evaluation timed out. Please retry or verify LLM settings.';
+              } else {
+                errorMsg = fileErr.message;
+              }
+            }
             aggregatedFailed.push({
               fileName: file.name,
-              error: fileErr instanceof Error ? fileErr.message : 'Processing error',
+              error: errorMsg,
             });
           }
 

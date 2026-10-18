@@ -640,7 +640,7 @@ ${extractedText.substring(0, 10000)}
     console.log(`   Candidate Extracted Skills: ${candidateSkills.join(', ')} (${yearsExperience} yrs exp)`);
     console.log(`   Calling Generative AI Engine (Deterministic Greedy Decoding)...`);
 
-    const SCREENING_TIMEOUT_MS = 45000;
+    const SCREENING_TIMEOUT_MS = 20000;
     const llmResult = await callUniversalLLM(
       [
         { role: 'system', content: systemPrompt },
@@ -688,7 +688,7 @@ ${extractedText.substring(0, 10000)}
             { role: 'user', content: userPrompt }
           ],
           { provider: 'gemini', model: 'gemini-2.5-flash', apiKey: geminiKey.trim(), temperature: 0.0, maxTokens: 4096 },
-          30000
+          12000
         );
         const rawParsed = extractJsonFromLlmResponse(fallbackLlmResult.content);
         const validated = normalizeScreeningOutput(rawParsed, candidateSkills, yearsExperience);

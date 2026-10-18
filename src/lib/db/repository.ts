@@ -455,7 +455,7 @@ export async function hydrateStoreFromSupabase(forceRefresh: boolean = false): P
   return memoryStore;
 }
 
-export async function syncStoreToSupabase(store: RecruitmentStore): Promise<boolean> {
+export async function syncStoreToSupabase(store: RecruitmentStore, skipRemoteMerge: boolean = false): Promise<boolean> {
   if (isTestEnv) return true;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -464,10 +464,11 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
     const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     await ensureDbStorageBucket(supabase);
 
-    // Merge remote state to prevent cross-container overwrites in serverless
-    try {
-      const { data: remoteData } = await supabase.storage.from('system_config').download('recruitment_store.json');
-      if (remoteData) {
+    // Merge remote state to prevent cross-container overwrites in serverless (bypassed on explicit database reset)
+    if (!skipRemoteMerge) {
+      try {
+        const { data: remoteData } = await supabase.storage.from('system_config').download('recruitment_store.json');
+        if (remoteData) {
         const remoteText = await remoteData.text();
         if (remoteText && remoteText.trim()) {
           const remoteStore = JSON.parse(remoteText);
@@ -637,6 +638,7 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
         }
       }
     } catch {}
+    }
 
     const { error } = await supabase.storage.from('system_config').upload('recruitment_store.json', JSON.stringify(store, null, 2), {
       contentType: 'application/json',
@@ -783,6 +785,58 @@ export const db = {
     const store = getStore();
     return await syncStoreToSupabase(store);
   },
+  // Explicitly reset the store and await cloud synchronization without merging old data
+  async resetDataAsync(keepBaseJob: boolean = true): Promise<RecruitmentStore> {
+    const resetStore: RecruitmentStore = {
+      jobs: keepBaseJob ? [DEFAULT_JOB] : [],
+      criteria: keepBaseJob ? [DEFAULT_CRITERIA] : [],
+      candidates: [],
+      cv_documents: [],
+      applications: [],
+      screening_runs: [],
+      assessment_assignments: [],
+      interviews: [],
+      interviewers: [DEFAULT_INTERVIEWER],
+      import_batches: [],
+      audit_logs: [
+        {
+          id: 'log-clean-' + Date.now(),
+          organization_id: 'a0000000-0000-0000-0000-000000000001',
+          user_name: 'System Admin',
+          entity_type: 'job',
+          entity_id: keepBaseJob ? DEFAULT_JOB.id : 'clean-slate',
+          action: 'CREATE',
+          details: { message: 'Initialized clean database state ready for user testing' },
+          created_at: new Date().toISOString()
+        }
+      ],
+      retention_requests: [],
+      sent_emails: [],
+      assessment_config: { ...DEFAULT_ASSESSMENT_CONFIG },
+      assessment_configs: JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS)),
+      deleted_assessment_config_ids: []
+    };
+
+    memoryStore = ensureStoreCollections(resetStore);
+    cloudStoreHydrated = true;
+
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(STORE_FILE, JSON.stringify(resetStore, null, 2), 'utf-8');
+      lastStoreMtime = fs.statSync(STORE_FILE).mtimeMs;
+    } catch {}
+    try {
+      fs.writeFileSync(TMP_STORE_FILE, JSON.stringify(resetStore, null, 2), 'utf-8');
+    } catch {}
+
+    if (!isTestEnv) {
+      await syncStoreToSupabase(resetStore, true);
+    }
+    return resetStore;
+  },
+
   // Jobs
   resetData(keepBaseJob: boolean = true): RecruitmentStore {
     const resetStore: RecruitmentStore = {
@@ -811,10 +865,27 @@ export const db = {
       retention_requests: [],
       sent_emails: [],
       assessment_config: { ...DEFAULT_ASSESSMENT_CONFIG },
-      assessment_configs: JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS))
+      assessment_configs: JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS)),
+      deleted_assessment_config_ids: []
     };
 
-    saveStore(resetStore);
+    memoryStore = ensureStoreCollections(resetStore);
+    cloudStoreHydrated = true;
+
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(STORE_FILE, JSON.stringify(resetStore, null, 2), 'utf-8');
+      lastStoreMtime = fs.statSync(STORE_FILE).mtimeMs;
+    } catch {}
+    try {
+      fs.writeFileSync(TMP_STORE_FILE, JSON.stringify(resetStore, null, 2), 'utf-8');
+    } catch {}
+
+    if (!isTestEnv) {
+      syncStoreToSupabase(resetStore, true).catch(err => console.warn('Reset sync warning:', err));
+    }
     return resetStore;
   },
 

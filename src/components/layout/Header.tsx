@@ -7,8 +7,6 @@ import {
   Sun, 
   Moon, 
   RotateCcw, 
-  ShieldCheck, 
-  UserCheck, 
   Cpu,
   AlertTriangle,
   X
@@ -19,7 +17,6 @@ import { useToast } from '@/components/ui/Toast';
 export function Header() {
   const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
-  const [activeRole, setActiveRole] = useState<'admin' | 'recruiter'>('admin');
   const [resetting, setResetting] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [llmModel, setLlmModel] = useState<string>('Detecting...');
@@ -40,8 +37,18 @@ export function Header() {
     try {
       const res = await fetch('/api/system/reset', { method: 'POST' });
       if (!res.ok) throw new Error('Reset request failed');
+
+      // Thoroughly clear all cached client-side pipeline results, assessment statuses, and session records
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+          window.dispatchEvent(new CustomEvent('recruitcrm:data_updated', { detail: { action: 'reset' } }));
+        } catch {}
+      }
+
       setShowResetModal(false);
-      toast.success('Database has been completely reset to a clean baseline state.', 'Data Reset');
+      toast.success('Database and application state have been completely reset to a clean baseline.', 'Data Reset');
       setTimeout(() => {
         window.location.reload();
       }, 500);
@@ -55,38 +62,10 @@ export function Header() {
   return (
     <>
       <header className="h-14 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] sticky top-0 z-20 px-6 flex items-center justify-between ml-60 transition-colors">
-        {/* Left: Org & Active Role */}
+        {/* Left: Org */}
         <div className="flex items-center gap-3">
           <div className="text-xs font-semibold tracking-tight text-[var(--text-primary)]">
             Acme Cloud Innovations
-          </div>
-
-          <span className="text-[var(--border-strong)]">/</span>
-
-          {/* Role Toggle for RBAC Testing */}
-          <div className="flex items-center bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-md p-0.5 text-xs">
-            <button
-              onClick={() => setActiveRole('admin')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-all ${
-                activeRole === 'admin'
-                  ? 'bg-[var(--accent)] text-white shadow-sm'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              <ShieldCheck className="w-3 h-3" />
-              Admin
-            </button>
-            <button
-              onClick={() => setActiveRole('recruiter')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-all ${
-                activeRole === 'recruiter'
-                  ? 'bg-[var(--accent)] text-white shadow-sm'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              <UserCheck className="w-3 h-3" />
-              Recruiter
-            </button>
           </div>
         </div>
 

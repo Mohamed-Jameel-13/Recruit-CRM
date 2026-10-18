@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
     let body: any = {};
@@ -14,7 +17,7 @@ export async function POST(req: NextRequest) {
     }
 
     const keepBaseJob = body.keepBaseJob !== false;
-    const cleanStore = db.resetData(keepBaseJob);
+    const cleanStore = await db.resetDataAsync(keepBaseJob);
 
     return NextResponse.json({
       success: true,
