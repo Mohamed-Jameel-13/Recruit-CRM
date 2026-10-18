@@ -93,6 +93,9 @@ export default function UploadPage() {
           if (j.calendly_link) {
             setCalendlyLink(j.calendly_link);
           }
+          if (j.assessment_config_id) {
+            setSelectedAssessmentId(j.assessment_config_id);
+          }
         }
       })
       .catch(() => {});
@@ -102,7 +105,10 @@ export default function UploadPage() {
       .then((d) => {
         if (d.configs && Array.isArray(d.configs) && d.configs.length > 0) {
           setAssessmentConfigs(d.configs);
-          setSelectedAssessmentId((prev) => prev || d.config?.id || d.configs[0].id);
+          setSelectedAssessmentId((prev) => {
+            if (prev && d.configs.some((c: any) => c.id === prev)) return prev;
+            return d.config?.id || d.configs[0].id;
+          });
         }
         if (d.config?.pass_threshold_percentage) {
           setRound2Threshold(d.config.pass_threshold_percentage);
@@ -329,6 +335,13 @@ export default function UploadPage() {
                 if (j?.description) setJobDescription(j.description);
                 if (j?.criteria?.pass_threshold_score) {
                   setRound1Threshold(j.criteria.pass_threshold_score);
+                }
+                if (j?.assessment_config_id) {
+                  setSelectedAssessmentId(j.assessment_config_id);
+                  const matched = assessmentConfigs.find(c => c.id === j.assessment_config_id);
+                  if (matched?.pass_threshold_percentage) {
+                    setRound2Threshold(matched.pass_threshold_percentage);
+                  }
                 }
               }}
               className="w-full app-input text-sm p-2.5"

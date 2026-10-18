@@ -515,10 +515,29 @@ export default function AssessmentsPage() {
       const newQuestions = [mcq1.question, mcq2.question, coding.question, arch.question].filter(Boolean);
 
       if (newQuestions.length > 0) {
-        setConfig({
+        const updatedConfig: AssessmentConfig = {
           ...active,
           questions: newQuestions
-        });
+        };
+        setConfig(updatedConfig);
+
+        // Automatically persist to backend so the created assessment is instantly saved and ready for screening
+        try {
+          const saveRes = await fetch('/api/assessments/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatedConfig)
+          });
+          const saveData = await saveRes.json();
+          if (saveRes.ok && saveData.config) {
+            setConfig(saveData.config);
+            if (saveData.configs) setConfigs(saveData.configs);
+            setIsDirty(false);
+            toast.success(`Generated & saved complete 4-question technical challenge for ${roleTarget}!`, 'Assessment Saved');
+            return;
+          }
+        } catch {}
+
         setIsDirty(true);
         toast.success(`Generated complete 4-question technical challenge for ${roleTarget}!`, 'Full Suite Ready');
       }

@@ -80,6 +80,10 @@ export async function PATCH(
     if (body.location !== undefined) jobUpdates.location = body.location.trim();
     if (body.employment_type !== undefined) jobUpdates.employment_type = body.employment_type.trim();
     if (body.status !== undefined) jobUpdates.status = body.status;
+    if (body.assessment_config_id !== undefined || body.assessmentConfigId !== undefined) {
+      const cfgId = body.assessment_config_id ?? body.assessmentConfigId;
+      jobUpdates.assessment_config_id = typeof cfgId === 'string' ? cfgId.trim() : undefined;
+    }
     
     // Save Calendly / interview booking link
     if (body.calendly_link !== undefined || body.calendlyLink !== undefined) {

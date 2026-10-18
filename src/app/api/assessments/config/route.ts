@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0'
+};
+
 export async function GET(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const role = searchParams.get('role');
@@ -10,7 +20,9 @@ export async function GET(req: NextRequest) {
     const config = db.getAssessmentConfig(id || role || undefined);
     const configs = db.getAssessmentConfigs();
 
-    return NextResponse.json({ success: true, config, configs });
+    return NextResponse.json({ success: true, config, configs }, {
+      headers: NO_CACHE_HEADERS
+    });
   } catch (err: unknown) {
     return NextResponse.json({
       error: 'Failed to fetch assessment configuration',
@@ -21,6 +33,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const body = await req.json();
     if (!body) {
       return NextResponse.json({ error: 'Invalid configuration payload' }, { status: 400 });
@@ -37,10 +50,19 @@ export async function POST(req: NextRequest) {
         calendly_link: body.calendly_link,
         questions: body.questions
       });
+
+      try {
+        await db.persistStoreAsync();
+      } catch (persistErr) {
+        console.warn('Storage persist notice for createAssessmentConfig:', persistErr);
+      }
+
       return NextResponse.json({
         success: true,
         config: created,
         configs: db.getAssessmentConfigs()
+      }, {
+        headers: NO_CACHE_HEADERS
       });
     }
 
@@ -49,9 +71,17 @@ export async function POST(req: NextRequest) {
     }
 
     const saved = db.saveAssessmentConfig(body);
+    try {
+      await db.persistStoreAsync();
+    } catch (persistErr) {
+      console.warn('Storage persist notice for saveAssessmentConfig:', persistErr);
+    }
+
     const configs = db.getAssessmentConfigs();
 
-    return NextResponse.json({ success: true, config: saved, configs });
+    return NextResponse.json({ success: true, config: saved, configs }, {
+      headers: NO_CACHE_HEADERS
+    });
   } catch (err: unknown) {
     return NextResponse.json({
       error: 'Failed to save assessment configuration',
@@ -62,6 +92,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 
@@ -76,10 +107,18 @@ export async function DELETE(req: NextRequest) {
       }, { status: 400 });
     }
 
+    try {
+      await db.persistStoreAsync();
+    } catch (persistErr) {
+      console.warn('Storage persist notice for deleteAssessmentConfig:', persistErr);
+    }
+
     const configs = db.getAssessmentConfigs();
     const config = db.getAssessmentConfig();
 
-    return NextResponse.json({ success: true, configs, config });
+    return NextResponse.json({ success: true, configs, config }, {
+      headers: NO_CACHE_HEADERS
+    });
   } catch (err: unknown) {
     return NextResponse.json({
       error: 'Failed to delete assessment configuration',

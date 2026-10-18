@@ -326,14 +326,18 @@ export async function POST(req: NextRequest) {
 
                 // Send Assessment Form Invitation Email
                 try {
+                  const chosenConfig = db.getAssessmentConfig(assignment.config_id || assessmentConfigId || job.assessment_config_id);
                   await emailDispatcher.sendAssessmentInvitation({
                     applicationId: application.id,
                     candidateEmail: candidate.email,
                     candidateName: `${firstName} ${lastName}`.trim(),
                     jobTitle: job.title,
+                    assessmentTitle: chosenConfig?.title,
+                    durationMinutes: chosenConfig?.duration_minutes || 45,
+                    assessmentDescription: chosenConfig?.description,
                     testUrl,
                     baseUrl: requestBaseUrl,
-                    passThreshold: assignment.pass_threshold_percentage || 70
+                    passThreshold: assignment.pass_threshold_percentage || chosenConfig?.pass_threshold_percentage || 70
                   });
                   emailSent = true;
                 } catch (emailErr) {

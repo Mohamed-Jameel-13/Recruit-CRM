@@ -27,6 +27,9 @@ export const emailDispatcher = {
     candidateEmail: string;
     candidateName: string;
     jobTitle: string;
+    assessmentTitle?: string;
+    durationMinutes?: number;
+    assessmentDescription?: string;
     testUrl: string;
     dueDate?: string;
     passThreshold?: number;
@@ -37,12 +40,16 @@ export const emailDispatcher = {
       candidateEmail,
       candidateName,
       jobTitle,
+      assessmentTitle,
+      durationMinutes = 45,
+      assessmentDescription,
       testUrl,
       dueDate = '7 days from receipt',
       passThreshold = 70,
       baseUrl: paramBaseUrl
     } = params;
 
+    const displayAssessmentTitle = assessmentTitle || `${jobTitle} Technical Assessment`;
     const baseUrl = getAppBaseUrl(paramBaseUrl);
     const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
     const absoluteTestUrl = testUrl.startsWith('http://') || testUrl.startsWith('https://')
@@ -53,12 +60,12 @@ export const emailDispatcher = {
       ? `<br /><span style="color: #9ca3af; font-size: 11px;">(Testing locally on your machine? <a href="http://localhost:3000/${testUrl.replace(/^\/+/, '')}" style="color: #2563eb;">Open via http://localhost:3000</a>)</span>`
       : '';
 
-    const subject = `Action Required: Technical Assessment for ${jobTitle}`;
+    const subject = `Action Required: ${displayAssessmentTitle} for ${jobTitle}`;
     const bodyHtml = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff; color: #111827;">
         <div style="margin-bottom: 20px;">
           <span style="background-color: #eff6ff; color: #2563eb; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 9999px; border: 1px solid #bfdbfe;">
-            Step 2: Technical Assessment Challenge
+            Step 2: ${displayAssessmentTitle}
           </span>
         </div>
         
@@ -71,12 +78,13 @@ export const emailDispatcher = {
         </p>
         
         <p style="font-size: 14px; line-height: 1.6; color: #4b5563; margin-bottom: 20px;">
-          The next step in our process is an interactive technical challenge designed to evaluate your system architecture, API design, and database concurrency skills.
+          ${assessmentDescription || 'The next step in our process is an interactive technical challenge designed to evaluate your domain knowledge, problem-solving, and technical competencies.'}
         </p>
         
         <div style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
           <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #374151; line-height: 1.7;">
-            <li><strong>Duration:</strong> Approximately 45 minutes</li>
+            <li><strong>Challenge:</strong> ${displayAssessmentTitle}</li>
+            <li><strong>Duration:</strong> Approximately ${durationMinutes} minutes</li>
             <li><strong>Minimum Pass Score:</strong> ${passThreshold}%</li>
             <li><strong>Due By:</strong> ${dueDate}</li>
             <li><strong>Automation:</strong> Scoring and Round 2 shortlisting are evaluated instantly upon submission.</li>
@@ -85,7 +93,7 @@ export const emailDispatcher = {
         
         <div style="text-align: center; margin: 28px 0 16px;">
           <a href="${absoluteTestUrl}" style="background-color: #2563eb; color: #ffffff; padding: 14px 32px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block;">
-            Open Technical Assessment Challenge
+            Open ${displayAssessmentTitle}
           </a>
         </div>
         
@@ -110,6 +118,8 @@ export const emailDispatcher = {
       metadata: {
         applicationId,
         jobTitle,
+        assessmentTitle: displayAssessmentTitle,
+        durationMinutes,
         testUrl,
         passThreshold
       }

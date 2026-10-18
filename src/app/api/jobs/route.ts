@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
         employment_type: body.employment_type || 'Full-Time',
         description: body.description.trim(),
         status: body.status || 'active',
-        calendly_link: (body.calendly_link || body.calendlyLink || '').trim() || undefined
+        calendly_link: (body.calendly_link || body.calendlyLink || '').trim() || undefined,
+        assessment_config_id: (body.assessment_config_id || body.assessmentConfigId || '').trim() || undefined
       },
       {
         min_years_experience: body.min_years_experience ?? synthesized.minYearsExperience,

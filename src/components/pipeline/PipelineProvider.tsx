@@ -323,6 +323,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
               pass_threshold_score: round1Threshold,
               assessment_pass_threshold: round2Threshold,
               calendly_link: calendlyLink.trim(),
+              assessment_config_id: assessmentConfigId || undefined,
             }),
           });
           const jobData = await jobRes.json();
@@ -330,7 +331,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
           activeJobId = jobData.job.id;
         }
 
-        // Save thresholds
+        // Save thresholds & assessment config
         if (activeJobId) {
           try {
             await fetch(`/api/jobs/${activeJobId}`, {
@@ -340,6 +341,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
                 pass_threshold_score: round1Threshold,
                 assessment_pass_threshold: round2Threshold,
                 calendly_link: calendlyLink.trim(),
+                assessment_config_id: assessmentConfigId || undefined,
               }),
             });
           } catch {}

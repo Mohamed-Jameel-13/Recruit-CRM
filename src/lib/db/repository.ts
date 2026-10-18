@@ -45,6 +45,7 @@ export interface RecruitmentStore {
   sent_emails: SentEmail[];
   assessment_config?: AssessmentConfig;
   assessment_configs: AssessmentConfig[];
+  deleted_assessment_config_ids?: string[];
 }
 
 // Initial baseline mock data matching seed.sql
@@ -385,11 +386,19 @@ export function ensureStoreCollections(store: RecruitmentStore): RecruitmentStor
   if (!Array.isArray(store.audit_logs)) store.audit_logs = [];
   if (!Array.isArray(store.retention_requests)) store.retention_requests = [];
   if (!Array.isArray(store.sent_emails)) store.sent_emails = [];
+  if (!Array.isArray(store.deleted_assessment_config_ids)) store.deleted_assessment_config_ids = [];
   if (!Array.isArray(store.assessment_configs) || store.assessment_configs.length === 0) {
     store.assessment_configs = JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS));
+  } else {
+    const deletedSet = new Set(store.deleted_assessment_config_ids || []);
+    for (const def of DEFAULT_ASSESSMENT_CONFIGS) {
+      if (!deletedSet.has(def.id) && !store.assessment_configs.some(c => c.id === def.id)) {
+        store.assessment_configs.push(JSON.parse(JSON.stringify(def)));
+      }
+    }
   }
-  if (!store.assessment_config) {
-    store.assessment_config = store.assessment_configs[0];
+  if (!store.assessment_config || (store.deleted_assessment_config_ids && store.deleted_assessment_config_ids.includes(store.assessment_config.id))) {
+    store.assessment_config = store.assessment_configs[0] || DEFAULT_ASSESSMENT_CONFIG;
   }
   for (const job of store.jobs) {
     if (!job.criteria) {
@@ -463,7 +472,73 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
         if (remoteText && remoteText.trim()) {
           const remoteStore = JSON.parse(remoteText);
           if (remoteStore && Array.isArray(remoteStore.jobs)) {
-            // Merge assignments
+            // 1. Merge Tombstones (deleted assessment configs)
+            const remoteDeleted = Array.isArray(remoteStore.deleted_assessment_config_ids) ? remoteStore.deleted_assessment_config_ids : [];
+            const localDeleted = Array.isArray(store.deleted_assessment_config_ids) ? store.deleted_assessment_config_ids : [];
+            const allDeleted = Array.from(new Set([...remoteDeleted, ...localDeleted]));
+            store.deleted_assessment_config_ids = allDeleted;
+            const deletedSet = new Set(allDeleted);
+
+            // Filter out any locally tracked deleted configs
+            if (Array.isArray(store.assessment_configs)) {
+              store.assessment_configs = store.assessment_configs.filter(c => !deletedSet.has(c.id));
+            } else {
+              store.assessment_configs = [];
+            }
+
+            // 2. Merge Assessment Configs
+            if (Array.isArray(remoteStore.assessment_configs)) {
+              for (const remoteCfg of remoteStore.assessment_configs) {
+                if (deletedSet.has(remoteCfg.id)) continue;
+                const existingIdx = store.assessment_configs.findIndex(c => c.id === remoteCfg.id);
+                if (existingIdx === -1) {
+                  // Created on another container: add it!
+                  store.assessment_configs.push(remoteCfg);
+                } else {
+                  // Exists in both: preserve whichever is newer
+                  const localTime = new Date(store.assessment_configs[existingIdx].updated_at || 0).getTime();
+                  const remoteTime = new Date(remoteCfg.updated_at || 0).getTime();
+                  if (remoteTime > localTime) {
+                    store.assessment_configs[existingIdx] = remoteCfg;
+                  }
+                }
+              }
+            }
+
+            // Ensure active assessment_config pointer is valid
+            if (!store.assessment_config || deletedSet.has(store.assessment_config.id)) {
+              store.assessment_config = store.assessment_configs[0] || DEFAULT_ASSESSMENT_CONFIG;
+            }
+
+            // 3. Merge Jobs
+            if (Array.isArray(remoteStore.jobs)) {
+              if (!Array.isArray(store.jobs)) store.jobs = [];
+              for (const rj of remoteStore.jobs) {
+                const localIdx = store.jobs.findIndex(j => j.id === rj.id);
+                if (localIdx === -1) {
+                  store.jobs.push(rj);
+                } else {
+                  const localTime = new Date(store.jobs[localIdx].updated_at || 0).getTime();
+                  const remoteTime = new Date(rj.updated_at || 0).getTime();
+                  if (remoteTime > localTime) {
+                    store.jobs[localIdx] = { ...store.jobs[localIdx], ...rj };
+                  }
+                }
+              }
+            }
+
+            // 4. Merge Criteria
+            if (Array.isArray(remoteStore.criteria)) {
+              if (!Array.isArray(store.criteria)) store.criteria = [];
+              for (const rc of remoteStore.criteria) {
+                const localIdx = store.criteria.findIndex(c => c.id === rc.id);
+                if (localIdx === -1) {
+                  store.criteria.push(rc);
+                }
+              }
+            }
+
+            // 5. Merge assignments
             if (Array.isArray(remoteStore.assessment_assignments)) {
               for (const a of remoteStore.assessment_assignments) {
                 const existingIdx = store.assessment_assignments.findIndex(x => x.id === a.id);
@@ -477,7 +552,7 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 }
               }
             }
-            // Merge candidates
+            // 6. Merge candidates
             if (Array.isArray(remoteStore.candidates)) {
               for (const c of remoteStore.candidates) {
                 if (!store.candidates.some(x => x.id === c.id)) {
@@ -485,7 +560,7 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 }
               }
             }
-            // Merge applications
+            // 7. Merge applications
             if (Array.isArray(remoteStore.applications)) {
               for (const app of remoteStore.applications) {
                 const existingIdx = store.applications.findIndex(x => x.id === app.id);
@@ -506,7 +581,7 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 }
               }
             }
-            // Merge screening runs
+            // 8. Merge screening runs
             if (Array.isArray(remoteStore.screening_runs)) {
               if (!Array.isArray(store.screening_runs)) store.screening_runs = [];
               for (const s of remoteStore.screening_runs) {
@@ -515,7 +590,7 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 }
               }
             }
-            // Merge sent emails
+            // 9. Merge sent emails
             if (Array.isArray(remoteStore.sent_emails)) {
               for (const e of remoteStore.sent_emails) {
                 if (!store.sent_emails.some(x => x.id === e.id)) {
@@ -523,7 +598,7 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 }
               }
             }
-            // Merge interviews
+            // 10. Merge interviews
             if (Array.isArray(remoteStore.interviews)) {
               for (const i of remoteStore.interviews) {
                 if (!store.interviews.some(x => x.id === i.id)) {
@@ -621,7 +696,8 @@ function getStore(): RecruitmentStore {
     retention_requests: [],
     sent_emails: [],
     assessment_config: { ...DEFAULT_ASSESSMENT_CONFIG },
-    assessment_configs: JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS))
+    assessment_configs: JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS)),
+    deleted_assessment_config_ids: []
   };
 
   memoryStore = ensureStoreCollections(initialStore);
@@ -1067,7 +1143,7 @@ export const db = {
     const job = store.jobs.find(j => j.id === app.job_id);
     const resolvedConfig = db.getAssessmentConfig(configId || job?.assessment_config_id || job?.title);
 
-    const assessId = 'assess-' + Date.now();
+    const assessId = 'assess-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     const testUrl = resolvedConfig.mode === 'EXTERNAL_URL' && resolvedConfig.external_url?.trim()
       ? resolvedConfig.external_url.trim()
       : `/assessment/take/${assessId}`;
@@ -1195,7 +1271,7 @@ export const db = {
           assignment = {
             id: 'assess-' + appById.id.replace(/^app-/, ''),
             application_id: appById.id,
-            config_id: appJob.assessment_config_id || 'cfg-fullstack',
+            config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
             assessment_type: 'EXTERNAL_URL',
             assessment_url: `/assessment/take/${appById.id}`,
             due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1236,7 +1312,7 @@ export const db = {
           assignment = {
             id: cleanId,
             application_id: app.id,
-            config_id: appJob.assessment_config_id || 'cfg-fullstack',
+            config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
             assessment_type: 'EXTERNAL_URL',
             assessment_url: `/assessment/take/${cleanId}`,
             due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1282,7 +1358,7 @@ export const db = {
           assignment = {
             id: cleanId,
             application_id: nearbyApp.id,
-            config_id: appJob.assessment_config_id || 'cfg-fullstack',
+            config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
             assessment_type: 'EXTERNAL_URL',
             assessment_url: `/assessment/take/${cleanId}`,
             due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1311,7 +1387,7 @@ export const db = {
         assignment = {
           id: cleanId,
           application_id: eligibleApp.id,
-          config_id: appJob.assessment_config_id || 'cfg-fullstack',
+          config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
           assessment_type: 'EXTERNAL_URL',
           assessment_url: `/assessment/take/${cleanId}`,
           due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1401,6 +1477,10 @@ export const db = {
       store.assessment_configs.push(configToSave);
     }
 
+    if (Array.isArray(store.deleted_assessment_config_ids)) {
+      store.deleted_assessment_config_ids = store.deleted_assessment_config_ids.filter(id => id !== configToSave.id);
+    }
+
     store.assessment_config = configToSave;
     saveStore(store);
     return configToSave;
@@ -1408,7 +1488,7 @@ export const db = {
 
   createAssessmentConfig(data: Partial<AssessmentConfig>): AssessmentConfig {
     const store = getStore();
-    const id = `cfg-${Date.now()}`;
+    const id = `cfg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date().toISOString();
     const newConfig: AssessmentConfig = {
       id,
@@ -1447,6 +1527,9 @@ export const db = {
 
     if (!store.assessment_configs) store.assessment_configs = [];
     store.assessment_configs.push(newConfig);
+    if (Array.isArray(store.deleted_assessment_config_ids)) {
+      store.deleted_assessment_config_ids = store.deleted_assessment_config_ids.filter(x => x !== id);
+    }
     store.assessment_config = newConfig;
     saveStore(store);
     return newConfig;
@@ -1456,6 +1539,12 @@ export const db = {
     const store = getStore();
     if (!store.assessment_configs || store.assessment_configs.length <= 1) {
       return false; // Prevent deleting the last remaining config
+    }
+    if (!Array.isArray(store.deleted_assessment_config_ids)) {
+      store.deleted_assessment_config_ids = [];
+    }
+    if (!store.deleted_assessment_config_ids.includes(id)) {
+      store.deleted_assessment_config_ids.push(id);
     }
     store.assessment_configs = store.assessment_configs.filter(c => c.id !== id);
     if (store.assessment_config?.id === id) {
