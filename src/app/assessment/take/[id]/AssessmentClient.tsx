@@ -61,6 +61,13 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
   const cleanLastName = candidate?.last_name?.replace(/^\d+[\s_-]*/, '').replace(/\d+/g, '').trim() || '';
   const displayName = `${cleanFirstName} ${cleanLastName}`.trim();
 
+  // Candidate email input state (prefills real email if valid, or allows entry if missing/placeholder)
+  const [candidateEmailInput, setCandidateEmailInput] = useState<string>(
+    candidate?.email && !candidate.email.endsWith('@example.com') && !candidate.email.startsWith('candidate_')
+      ? candidate.email
+      : ''
+  );
+
   // Determine initial stage: if already submitted, go directly to COMPLETED
   const initialCompleted = Boolean(initialData.assessment?.isSubmitted);
 
@@ -148,7 +155,7 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
     setStage('SUBMITTING');
     try {
       const targetAssignmentId = assignmentId || assessmentData?.assessment?.id;
-      const candidateEmail = candidate?.email;
+      const candidateEmail = candidateEmailInput?.trim() || candidate?.email;
       const res = await fetch('/api/assessments/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -230,7 +237,7 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
                 {displayName}
               </span>
               <span className="text-[11px] text-slate-500 font-mono">
-                {candidate?.email}
+                {candidateEmailInput || candidate?.email || 'Candidate Portal'}
               </span>
             </div>
           </div>
@@ -748,6 +755,22 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
               <p className="text-xs text-slate-600 leading-relaxed">
                 Once submitted, your responses will be finalized and transmitted to our engineering hiring team for review. You will not be able to modify your answers after submission.
               </p>
+
+              <div className="space-y-1.5 pt-1">
+                <label className="text-[11px] font-semibold text-slate-700 block">
+                  Interview Invitation &amp; Results Recipient Email:
+                </label>
+                <input
+                  type="email"
+                  placeholder="Enter your personal email (e.g. name@gmail.com)"
+                  value={candidateEmailInput}
+                  onChange={(e) => setCandidateEmailInput(e.target.value)}
+                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono bg-slate-50 focus:bg-white transition-colors"
+                />
+                <p className="text-[10px] text-slate-500">
+                  Ensure this email is active to receive your Round 2 technical interview link.
+                </p>
+              </div>
 
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100">
                 <button

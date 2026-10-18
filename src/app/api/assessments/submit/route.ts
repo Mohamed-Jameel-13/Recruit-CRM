@@ -297,6 +297,7 @@ Respond ONLY with valid JSON:
       verified: true,
       verifiedBy: 'Autonomous Grading Engine (Gemini 2.5 Flash)',
       candidateEmail: candidate?.email || candidateEmail,
+      skipEmailNotification: true,
       details: { 
         answers, 
         breakdown: questionResults, 

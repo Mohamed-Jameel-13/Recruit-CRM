@@ -538,25 +538,36 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
               }
             }
 
-            // 5. Merge assignments
+            // 5. Merge assignments with timestamp precision
             if (Array.isArray(remoteStore.assessment_assignments)) {
               for (const a of remoteStore.assessment_assignments) {
                 const existingIdx = store.assessment_assignments.findIndex(x => x.id === a.id);
                 if (existingIdx === -1) {
                   store.assessment_assignments.push(a);
-                } else if (a.status === 'PASSED' || a.status === 'FAILED' || typeof a.percentage_score === 'number' || typeof a.score === 'number') {
-                  store.assessment_assignments[existingIdx] = {
-                    ...store.assessment_assignments[existingIdx],
-                    ...a
-                  };
+                } else {
+                  const localTime = new Date(store.assessment_assignments[existingIdx].updated_at || store.assessment_assignments[existingIdx].verified_at || 0).getTime();
+                  const remoteTime = new Date(a.updated_at || a.verified_at || 0).getTime();
+                  if (remoteTime > localTime) {
+                    store.assessment_assignments[existingIdx] = {
+                      ...store.assessment_assignments[existingIdx],
+                      ...a
+                    };
+                  }
                 }
               }
             }
             // 6. Merge candidates
             if (Array.isArray(remoteStore.candidates)) {
               for (const c of remoteStore.candidates) {
-                if (!store.candidates.some(x => x.id === c.id)) {
+                const existingIdx = store.candidates.findIndex(x => x.id === c.id);
+                if (existingIdx === -1) {
                   store.candidates.push(c);
+                } else {
+                  const localTime = new Date(store.candidates[existingIdx].updated_at || 0).getTime();
+                  const remoteTime = new Date(c.updated_at || 0).getTime();
+                  if (remoteTime > localTime) {
+                    store.candidates[existingIdx] = { ...store.candidates[existingIdx], ...c };
+                  }
                 }
               }
             }
@@ -567,21 +578,30 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 if (existingIdx === -1) {
                   store.applications.push(app);
                 } else {
-                  if (typeof app.assessment_score === 'number') {
-                    store.applications[existingIdx].assessment_score = app.assessment_score;
-                  }
-                  if (app.assessment_status && app.assessment_status !== 'NOT_STARTED') {
-                    store.applications[existingIdx].assessment_status = app.assessment_status;
-                  }
-                  if (app.stage === 'INTERVIEW' || app.stage === 'OFFER' || app.stage === 'HIRED') {
-                    store.applications[existingIdx].stage = app.stage;
-                  } else if (app.stage === 'ASSESSMENT' && store.applications[existingIdx].stage === 'SCREENING') {
-                    store.applications[existingIdx].stage = app.stage;
+                  const localTime = new Date(store.applications[existingIdx].updated_at || 0).getTime();
+                  const remoteTime = new Date(app.updated_at || 0).getTime();
+                  if (remoteTime > localTime) {
+                    store.applications[existingIdx] = {
+                      ...store.applications[existingIdx],
+                      ...app
+                    };
                   }
                 }
               }
             }
-            // 8. Merge screening runs
+            // 8. Merge CV documents
+            if (Array.isArray(remoteStore.cv_documents)) {
+              if (!Array.isArray(store.cv_documents)) store.cv_documents = [];
+              for (const doc of remoteStore.cv_documents) {
+                const existingIdx = store.cv_documents.findIndex(x => x.id === doc.id);
+                if (existingIdx === -1) {
+                  store.cv_documents.push(doc);
+                } else if (doc.extracted_text && !store.cv_documents[existingIdx].extracted_text) {
+                  store.cv_documents[existingIdx] = { ...store.cv_documents[existingIdx], ...doc };
+                }
+              }
+            }
+            // 9. Merge screening runs
             if (Array.isArray(remoteStore.screening_runs)) {
               if (!Array.isArray(store.screening_runs)) store.screening_runs = [];
               for (const s of remoteStore.screening_runs) {
@@ -590,7 +610,7 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 }
               }
             }
-            // 9. Merge sent emails
+            // 10. Merge sent emails
             if (Array.isArray(remoteStore.sent_emails)) {
               for (const e of remoteStore.sent_emails) {
                 if (!store.sent_emails.some(x => x.id === e.id)) {
@@ -598,11 +618,18 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 }
               }
             }
-            // 10. Merge interviews
+            // 11. Merge interviews
             if (Array.isArray(remoteStore.interviews)) {
               for (const i of remoteStore.interviews) {
-                if (!store.interviews.some(x => x.id === i.id)) {
+                const existingIdx = store.interviews.findIndex(x => x.id === i.id);
+                if (existingIdx === -1) {
                   store.interviews.push(i);
+                } else {
+                  const localTime = new Date(store.interviews[existingIdx].updated_at || 0).getTime();
+                  const remoteTime = new Date(i.updated_at || 0).getTime();
+                  if (remoteTime > localTime) {
+                    store.interviews[existingIdx] = { ...store.interviews[existingIdx], ...i };
+                  }
                 }
               }
             }
@@ -627,26 +654,12 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
 }
 
 function getStore(): RecruitmentStore {
-  // Check primary local store file
-  try {
-    if (fs.existsSync(STORE_FILE)) {
-      const stats = fs.statSync(STORE_FILE);
-      if (!memoryStore || stats.mtimeMs > lastStoreMtime) {
-        const data = fs.readFileSync(STORE_FILE, 'utf-8');
-        if (data && data.trim()) {
-          memoryStore = ensureStoreCollections(JSON.parse(data));
-          lastStoreMtime = stats.mtimeMs;
-          return memoryStore;
-        }
-      } else {
-        return ensureStoreCollections(memoryStore);
-      }
-    }
-  } catch {
-    // try fallback
+  // If memoryStore is already loaded and hydrated in memory, always return it
+  if (memoryStore) {
+    return ensureStoreCollections(memoryStore);
   }
 
-  // Check serverless /tmp store fallback
+  // Check serverless /tmp store fallback for cold instances
   try {
     if (fs.existsSync(TMP_STORE_FILE)) {
       const data = fs.readFileSync(TMP_STORE_FILE, 'utf-8');
@@ -660,8 +673,17 @@ function getStore(): RecruitmentStore {
     }
   } catch {}
 
-  if (memoryStore) {
-    return ensureStoreCollections(memoryStore);
+  // Check primary local store file fallback on initial cold start
+  try {
+    if (fs.existsSync(STORE_FILE)) {
+      const data = fs.readFileSync(STORE_FILE, 'utf-8');
+      if (data && data.trim()) {
+        memoryStore = ensureStoreCollections(JSON.parse(data));
+        return memoryStore;
+      }
+    }
+  } catch {
+    // try fallback
   }
 
   // Trigger cloud hydration for serverless cold-starts
@@ -1308,23 +1330,28 @@ export const db = {
       if (emailMeta?.applicationId) {
         const app = store.applications.find(a => a.id === emailMeta.applicationId);
         if (app) {
-          const appJob = store.jobs.find(j => j.id === app.job_id) || store.jobs[0] || DEFAULT_JOB;
-          assignment = {
-            id: cleanId,
-            application_id: app.id,
-            config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
-            assessment_type: 'EXTERNAL_URL',
-            assessment_url: `/assessment/take/${cleanId}`,
-            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-            pass_threshold_percentage: typeof emailMeta.passThreshold === 'number' ? emailMeta.passThreshold : 70,
-            status: 'SENT',
-            verified: false,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          store.assessment_assignments.push(assignment);
-          if (app.stage === 'SCREENING') app.stage = 'ASSESSMENT';
-          saveStore(store);
+          const existing = store.assessment_assignments.find(a => a.application_id === app.id);
+          if (existing) {
+            assignment = existing;
+          } else {
+            const appJob = store.jobs.find(j => j.id === app.job_id) || store.jobs[0] || DEFAULT_JOB;
+            assignment = {
+              id: cleanId,
+              application_id: app.id,
+              config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
+              assessment_type: 'EXTERNAL_URL',
+              assessment_url: `/assessment/take/${cleanId}`,
+              due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              pass_threshold_percentage: typeof emailMeta.passThreshold === 'number' ? emailMeta.passThreshold : 70,
+              status: 'SENT',
+              verified: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            };
+            store.assessment_assignments.push(assignment);
+            if (app.stage === 'SCREENING') app.stage = 'ASSESSMENT';
+            saveStore(store);
+          }
         }
       }
     }
@@ -1354,23 +1381,28 @@ export const db = {
         const nearbyApp = bestApp;
 
         if (nearbyApp) {
-          const appJob = store.jobs.find(j => j.id === nearbyApp.job_id) || store.jobs[0] || DEFAULT_JOB;
-          assignment = {
-            id: cleanId,
-            application_id: nearbyApp.id,
-            config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
-            assessment_type: 'EXTERNAL_URL',
-            assessment_url: `/assessment/take/${cleanId}`,
-            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-            pass_threshold_percentage: 70,
-            status: 'SENT',
-            verified: false,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          store.assessment_assignments.push(assignment);
-          if (nearbyApp.stage === 'SCREENING') nearbyApp.stage = 'ASSESSMENT';
-          saveStore(store);
+          const existing = store.assessment_assignments.find(a => a.application_id === nearbyApp.id);
+          if (existing) {
+            assignment = existing;
+          } else {
+            const appJob = store.jobs.find(j => j.id === nearbyApp.job_id) || store.jobs[0] || DEFAULT_JOB;
+            assignment = {
+              id: cleanId,
+              application_id: nearbyApp.id,
+              config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
+              assessment_type: 'EXTERNAL_URL',
+              assessment_url: `/assessment/take/${cleanId}`,
+              due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              pass_threshold_percentage: 70,
+              status: 'SENT',
+              verified: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            };
+            store.assessment_assignments.push(assignment);
+            if (nearbyApp.stage === 'SCREENING') nearbyApp.stage = 'ASSESSMENT';
+            saveStore(store);
+          }
         }
       }
     }
@@ -1383,23 +1415,28 @@ export const db = {
         .find(a => a.stage === 'ASSESSMENT' || a.screening_status === 'COMPLETED');
 
       if (eligibleApp) {
-        const appJob = store.jobs.find(j => j.id === eligibleApp.job_id) || store.jobs[0] || DEFAULT_JOB;
-        assignment = {
-          id: cleanId,
-          application_id: eligibleApp.id,
-          config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
-          assessment_type: 'EXTERNAL_URL',
-          assessment_url: `/assessment/take/${cleanId}`,
-          due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          pass_threshold_percentage: 70,
-          status: 'SENT',
-          verified: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        store.assessment_assignments.push(assignment);
-        if (eligibleApp.stage === 'SCREENING') eligibleApp.stage = 'ASSESSMENT';
-        saveStore(store);
+        const existing = store.assessment_assignments.find(a => a.application_id === eligibleApp.id);
+        if (existing) {
+          assignment = existing;
+        } else {
+          const appJob = store.jobs.find(j => j.id === eligibleApp.job_id) || store.jobs[0] || DEFAULT_JOB;
+          assignment = {
+            id: cleanId,
+            application_id: eligibleApp.id,
+            config_id: appJob.assessment_config_id || store.assessment_config?.id || store.assessment_configs?.[0]?.id || 'cfg-fullstack',
+            assessment_type: 'EXTERNAL_URL',
+            assessment_url: `/assessment/take/${cleanId}`,
+            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            pass_threshold_percentage: 70,
+            status: 'SENT',
+            verified: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          store.assessment_assignments.push(assignment);
+          if (eligibleApp.stage === 'SCREENING') eligibleApp.stage = 'ASSESSMENT';
+          saveStore(store);
+        }
       }
     }
 
@@ -1617,6 +1654,7 @@ export const db = {
       verified?: boolean; 
       verifiedBy?: string; 
       candidateEmail?: string;
+      skipEmailNotification?: boolean;
       details?: Record<string, unknown> 
     }
   ): AssessmentAssignment | null {
@@ -1720,67 +1758,69 @@ export const db = {
             };
             store.interviews.push(interview);
 
-            // Dispatch Round 2 interview email with Calendly booking link (Human, non-AI tone)
-            const roleTitle = job?.title || 'Senior Full-Stack Cloud Engineer';
-            const subject = `Next steps: Technical Interview for ${roleTitle}`;
-            const bodyHtml = `
-              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; color: #1f2937; line-height: 1.6; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
-                <p style="font-size: 15px; margin-top: 0; margin-bottom: 20px; color: #111827;">
-                  Hi ${cleanFirstName},
-                </p>
+            // Dispatch Round 2 interview email with Calendly booking link unless caller opts out to dispatch awaited
+            if (!data.skipEmailNotification) {
+              const roleTitle = job?.title || 'Senior Full-Stack Cloud Engineer';
+              const subject = `Next steps: Technical Interview for ${roleTitle}`;
+              const bodyHtml = `
+                <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; color: #1f2937; line-height: 1.6; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
+                  <p style="font-size: 15px; margin-top: 0; margin-bottom: 20px; color: #111827;">
+                    Hi ${cleanFirstName},
+                  </p>
 
-                <p style="font-size: 15px; margin-bottom: 16px; color: #374151;">
-                  Thank you for taking the time to complete the technical assessment for the <strong>${roleTitle}</strong> role. Our engineering team reviewed your submission, and we were really impressed with your architecture and problem-solving approach.
-                </p>
+                  <p style="font-size: 15px; margin-bottom: 16px; color: #374151;">
+                    Thank you for taking the time to complete the technical assessment for the <strong>${roleTitle}</strong> role. Our engineering team reviewed your submission, and we were really impressed with your architecture and problem-solving approach.
+                  </p>
 
-                <p style="font-size: 15px; margin-bottom: 24px; color: #374151;">
-                  We'd love to invite you to our next round—a 45-minute technical conversation. It'll be a chance to talk through your experience, dive deeper into system design, and give you plenty of time to ask us anything about what we're building and what it's like working here.
-                </p>
+                  <p style="font-size: 15px; margin-bottom: 24px; color: #374151;">
+                    We'd love to invite you to our next round—a 45-minute technical conversation. It'll be a chance to talk through your experience, dive deeper into system design, and give you plenty of time to ask us anything about what we're building and what it's like working here.
+                  </p>
 
-                <div style="margin: 28px 0; text-align: left;">
-                  <a href="${bookingUrl}" style="background-color: #2563eb; color: #ffffff; padding: 12px 26px; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; display: inline-block;">
-                    Schedule your interview
-                  </a>
+                  <div style="margin: 28px 0; text-align: left;">
+                    <a href="${bookingUrl}" style="background-color: #2563eb; color: #ffffff; padding: 12px 26px; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; display: inline-block;">
+                      Schedule your interview
+                    </a>
+                  </div>
+
+                  <p style="font-size: 13px; color: #6b7280; margin-bottom: 20px; line-height: 1.5;">
+                    You can also use this direct link to view available times: <br/>
+                    <a href="${bookingUrl}" style="color: #2563eb; word-break: break-all;">${bookingUrl}</a>
+                  </p>
+
+                  <p style="font-size: 14px; color: #4b5563; margin-bottom: 24px;">
+                    If none of the available slots fit your schedule or timezone, just reply directly to this email with a few times that suit you best and we'll gladly work around your availability.
+                  </p>
+
+                  <p style="font-size: 15px; margin-bottom: 4px; color: #374151;">
+                    Looking forward to speaking with you!
+                  </p>
+                  <p style="font-size: 15px; font-weight: 600; color: #111827; margin-top: 0;">
+                    The Engineering Hiring Team
+                  </p>
                 </div>
+              `.trim();
 
-                <p style="font-size: 13px; color: #6b7280; margin-bottom: 20px; line-height: 1.5;">
-                  You can also use this direct link to view available times: <br/>
-                  <a href="${bookingUrl}" style="color: #2563eb; word-break: break-all;">${bookingUrl}</a>
-                </p>
-
-                <p style="font-size: 14px; color: #4b5563; margin-bottom: 24px;">
-                  If none of the available slots fit your schedule or timezone, just reply directly to this email with a few times that suit you best and we'll gladly work around your availability.
-                </p>
-
-                <p style="font-size: 15px; margin-bottom: 4px; color: #374151;">
-                  Looking forward to speaking with you!
-                </p>
-                <p style="font-size: 15px; font-weight: 600; color: #111827; margin-top: 0;">
-                  The Engineering Hiring Team
-                </p>
-              </div>
-            `.trim();
-
-            const email: SentEmail = {
-              id: 'email-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-              recipient_email: candidate.email,
-              recipient_name: recipientName,
-              subject,
-              body_html: bodyHtml,
-              template_type: 'ROUND_2_INTERVIEW_INVITATION',
-              metadata: {
-                applicationId: appId,
-                score: percentage,
-                meetingUrl: bookingUrl,
-                calendlyUrl: calendlyLink || undefined,
-                scheduledStart,
-                interviewerName: interviewer.name
-              },
-              sent_at: new Date().toISOString()
-            };
-            if (!store.sent_emails) store.sent_emails = [];
-            store.sent_emails.unshift(email);
-            dispatchRealSmtpEmail(candidate.email, subject, bodyHtml);
+              const email: SentEmail = {
+                id: 'email-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+                recipient_email: candidate.email,
+                recipient_name: recipientName,
+                subject,
+                body_html: bodyHtml,
+                template_type: 'ROUND_2_INTERVIEW_INVITATION',
+                metadata: {
+                  applicationId: appId,
+                  score: percentage,
+                  meetingUrl: bookingUrl,
+                  calendlyUrl: calendlyLink || undefined,
+                  scheduledStart,
+                  interviewerName: interviewer.name
+                },
+                sent_at: new Date().toISOString()
+              };
+              if (!store.sent_emails) store.sent_emails = [];
+              store.sent_emails.unshift(email);
+              dispatchRealSmtpEmail(candidate.email, subject, bodyHtml);
+            }
           }
         }
       }

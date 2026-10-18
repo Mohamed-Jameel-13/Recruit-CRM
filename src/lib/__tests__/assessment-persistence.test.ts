@@ -149,4 +149,73 @@ describe('Assessment Persistence and Dispatch Suite', () => {
     expect(email.body_html).toContain('/assessment/take/assess-test-123');
     expect(email.body_html).toContain('80%');
   });
+
+  it('should enforce single attempt by reusing existing assessment in getOrCreateAssessmentById', () => {
+    const job = db.getJobs()[0];
+    const { application } = db.createApplicationWithCandidate({
+      jobId: job.id,
+      firstName: 'Sarah',
+      lastName: 'Connor',
+      email: 'sarah.connor@test.com'
+    });
+
+    // Shortlist and generate assessment assignment
+    db.approveForAssessment(application.id, 'Recruiter Test');
+    const originalAssignment = db.getAssessmentByApplicationId(application.id);
+    expect(originalAssignment).not.toBeNull();
+
+    // Candidate submits assessment
+    const completedAssignment = db.saveAssessmentResult(originalAssignment!.id, {
+      score: 95,
+      maxScore: 100,
+      source: 'Candidate Submission',
+      skipEmailNotification: true
+    });
+    expect(completedAssignment?.status).toBe('PASSED');
+    expect(completedAssignment?.verified).toBe(true);
+
+    // Candidate clicks assessment link again
+    const session = db.getOrCreateAssessmentById(originalAssignment!.id);
+    expect(session).not.toBeNull();
+    expect(session?.assignment.id).toBe(originalAssignment!.id);
+    expect(session?.assignment.status).toBe('PASSED');
+    expect(session?.assignment.verified).toBe(true);
+
+    // If candidate opens with another token that recovers this application
+    const recoveredSession = db.getOrCreateAssessmentById(`assess-${application.id.replace(/^app-/, '')}`);
+    expect(recoveredSession).not.toBeNull();
+    expect(recoveredSession?.assignment.status).toBe('PASSED');
+    expect(recoveredSession?.assignment.verified).toBe(true);
+  });
+
+  it('should track submitted assessment scores in getAnalytics immediately and accurately', () => {
+    const job = db.getJobs()[0];
+    const { application } = db.createApplicationWithCandidate({
+      jobId: job.id,
+      firstName: 'David',
+      lastName: 'Miller',
+      email: 'david.miller@test.com'
+    });
+
+    db.approveForAssessment(application.id, 'Recruiter Test');
+    const assignment = db.getAssessmentByApplicationId(application.id);
+    expect(assignment).not.toBeNull();
+
+    db.saveAssessmentResult(assignment!.id, {
+      score: 88,
+      maxScore: 100,
+      source: 'Candidate Form Submission',
+      skipEmailNotification: true
+    });
+
+    const analytics = db.getAnalytics('all');
+    expect(analytics.assessmentSubmissions).toBeGreaterThanOrEqual(1);
+    expect(analytics.averageAssessmentScore).toBeGreaterThan(0);
+    expect(analytics.scoreDistribution.excellent).toBeGreaterThanOrEqual(1);
+
+    const matchInRecent = analytics.recentSubmissions.find(s => s.id === assignment!.id);
+    expect(matchInRecent).toBeDefined();
+    expect(matchInRecent?.score).toBe(88);
+    expect(matchInRecent?.passed).toBe(true);
+  });
 });
