@@ -1,21 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const assignment = db.getAssessmentById(id);
+    await db.ensureHydrated(true);
 
-    if (!assignment) {
+    const session = db.getOrCreateAssessmentById(id);
+
+    if (!session) {
       return NextResponse.json({ error: 'Assessment not found' }, { status: 404 });
     }
 
-    const application = db.getApplicationById(assignment.application_id);
-    const candidate = application?.candidate || null;
-    const job = application?.job || null;
+    const { assignment, candidate, job, application } = session;
 
     const rawConfig = db.getAssessmentConfig(assignment.config_id || job?.assessment_config_id || job?.title);
     const sanitizedConfig = {
@@ -48,6 +51,12 @@ export async function GET(
       job,
       application,
       config: sanitizedConfig
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     });
   } catch (err: unknown) {
     return NextResponse.json({

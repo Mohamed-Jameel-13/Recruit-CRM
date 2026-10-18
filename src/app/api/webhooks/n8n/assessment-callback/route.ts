@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookRequest } from '@/lib/n8n/auth';
 import { db } from '@/lib/db/repository';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   const auth = verifyWebhookRequest(req);
   if (!auth.authorized) {
@@ -9,6 +11,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    await db.ensureHydrated(true);
     const body = await req.json();
     const { candidateEmail, score, maxScore, source, rawPayload } = body;
 
@@ -44,6 +47,10 @@ export async function POST(req: NextRequest) {
         verifiedBy: 'n8n Webhook Sync',
         details: rawPayload
       });
+
+      try {
+        await db.persistStoreAsync();
+      } catch {}
 
       return NextResponse.json({ 
         success: true, 

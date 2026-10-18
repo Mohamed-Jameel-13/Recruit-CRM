@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const body = await req.json();
     const email = body.candidateEmail || body.email || body.respondentEmail;
     const rawScore = body.score || body.quizScore || body.points;
@@ -58,6 +61,10 @@ export async function POST(req: NextRequest) {
 
     const interviews = db.getInterviews().filter(i => i.application_id === app.id);
     const scheduledInterview = interviews.length > 0 ? interviews[0] : null;
+
+    try {
+      await db.persistStoreAsync();
+    } catch {}
 
     return NextResponse.json({
       success: true,

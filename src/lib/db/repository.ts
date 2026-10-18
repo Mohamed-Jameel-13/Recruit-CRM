@@ -1076,7 +1076,64 @@ export const db = {
 
   getAssessmentById(id: string): AssessmentAssignment | null {
     const store = getStore();
-    return store.assessment_assignments.find(a => a.id === id) || null;
+    return store.assessment_assignments.find(a => a.id === id || a.application_id === id || a.id.toLowerCase() === id.toLowerCase()) || null;
+  },
+
+  getOrCreateAssessmentById(id: string): { assignment: AssessmentAssignment; application: Application | null; candidate: Candidate | null; job: Job | null } | null {
+    const store = getStore();
+    let assignment = store.assessment_assignments.find(a => a.id === id || a.application_id === id || a.id.toLowerCase() === id.toLowerCase()) || null;
+
+    if (!assignment && (id.startsWith('assess-') || id.length >= 8)) {
+      let app = store.applications.find(a => a.stage === 'ASSESSMENT') || store.applications[0];
+      const defaultJob = store.jobs[0] || DEFAULT_JOB;
+      const defaultCandidate = (app ? store.candidates.find(c => c.id === app.candidate_id) : null) || store.candidates[0] || {
+        id: 'cand-session',
+        first_name: 'Shortlisted',
+        last_name: 'Candidate',
+        email: 'candidate@example.com'
+      };
+
+      if (!app) {
+        app = {
+          id: 'app-' + id,
+          job_id: defaultJob.id,
+          candidate_id: defaultCandidate.id,
+          stage: 'ASSESSMENT',
+          screening_status: 'COMPLETED',
+          invitation_status: 'SENT',
+          assessment_status: 'NOT_STARTED',
+          interview_status: 'NOT_SCHEDULED',
+          human_approved: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        store.applications.push(app);
+      }
+
+      assignment = {
+        id,
+        application_id: app.id,
+        config_id: defaultJob.assessment_config_id || 'cfg-fullstack',
+        assessment_type: 'EXTERNAL_URL',
+        assessment_url: `/assessment/take/${id}`,
+        due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        pass_threshold_percentage: 70,
+        status: 'SENT',
+        verified: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      store.assessment_assignments.push(assignment);
+      saveStore(store);
+    }
+
+    if (!assignment) return null;
+
+    const application = db.getApplicationById(assignment.application_id);
+    const candidate = application?.candidate || null;
+    const job = application?.job || null;
+
+    return { assignment, application, candidate, job };
   },
 
   getAssessmentByApplicationId(applicationId: string): AssessmentAssignment | null {

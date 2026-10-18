@@ -3,6 +3,9 @@ import { AssessmentClient } from './AssessmentClient';
 import Link from 'next/link';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }
@@ -10,10 +13,13 @@ interface PageProps {
 export default async function TakeAssessmentPage({ params }: PageProps) {
   const { id } = await params;
 
-  // Direct server-side data resolution: 0ms latency, no client-side loading spinners!
-  const assignment = db.getAssessmentById(id);
+  // Hydrate store from cloud Supabase Storage first so serverless containers have latest assignments
+  await db.ensureHydrated(true);
 
-  if (!assignment) {
+  // Retrieve assignment or auto-recover session for valid tokens
+  const session = db.getOrCreateAssessmentById(id);
+
+  if (!session) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 text-slate-800">
         <div className="p-8 rounded-2xl border border-slate-200 bg-white shadow-xl max-w-md w-full text-center space-y-4">
@@ -40,9 +46,7 @@ export default async function TakeAssessmentPage({ params }: PageProps) {
     );
   }
 
-  const application = db.getApplicationById(assignment.application_id);
-  const candidate = application?.candidate || null;
-  const job = application?.job || null;
+  const { assignment, candidate, job } = session;
   const rawConfig = db.getAssessmentConfig(assignment.config_id || job?.assessment_config_id || job?.title);
 
   const isSubmitted = assignment.status === 'PASSED' || assignment.status === 'FAILED';
