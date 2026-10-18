@@ -62,8 +62,13 @@ function getRequestBaseUrl(req: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
+  const requestStartTime = Date.now();
+  const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  const MAX_SAFE_BUDGET_MS = isServerless ? 8500 : 50000;
+  const fastFallbackRequested = req.headers.get('x-fast-fallback') === 'true';
+
   try {
-    await db.ensureHydrated(true);
+    await db.ensureHydrated(false);
     const requestBaseUrl = getRequestBaseUrl(req);
     const formData = await req.formData();
     const jobId = formData.get('jobId') as string;
@@ -251,6 +256,13 @@ export async function POST(req: NextRequest) {
 
         // 7. Perform Intelligent Semantic AI Screening
         if (job.criteria) {
+          const elapsed = Date.now() - requestStartTime;
+          const remainingForAI = Math.max(2000, MAX_SAFE_BUDGET_MS - elapsed - 2200);
+          const effectiveConfig = {
+            ...(clientLlmConfig || {}),
+            fastFallback: fastFallbackRequested
+          };
+
           const screeningOutcome = await screenCandidateWithAI(
             extracted.text,
             extracted.skills,
@@ -258,7 +270,8 @@ export async function POST(req: NextRequest) {
             job.criteria,
             job.title,
             job.description,
-            clientLlmConfig
+            effectiveConfig,
+            remainingForAI
           );
 
           // If AI detected a verified candidate name or personal contact email from the CV
@@ -403,7 +416,10 @@ export async function POST(req: NextRequest) {
 
     // Guarantee all screening runs, applications, and batch data are committed to Supabase Storage before returning
     try {
-      await db.persistStoreAsync();
+      await Promise.race([
+        db.persistStoreAsync(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Persistence timeout')), 2200))
+      ]);
     } catch (persistErr) {
       console.warn('Notice: Non-fatal background storage persist warning:', persistErr);
     }

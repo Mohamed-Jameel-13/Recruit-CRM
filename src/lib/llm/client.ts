@@ -768,7 +768,10 @@ export async function callUniversalLLM(
     let res: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) {
-        const backoff = 1500 * Math.pow(2, attempt - 1) + Math.random() * 500;
+        if (Date.now() - startTime >= timeoutMs - 1200) {
+          break; // Stop retrying if remaining timeout budget is exhausted
+        }
+        const backoff = Math.min(800, 500 * attempt);
         console.log(`⏳ [AI Call] Endpoint Rate Limit/Transient error (${res?.status}). Retrying in ${Math.round(backoff)}ms (Attempt ${attempt + 1}/3)...`);
         await new Promise(r => setTimeout(r, backoff));
       }

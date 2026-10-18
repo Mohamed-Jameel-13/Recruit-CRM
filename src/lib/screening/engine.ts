@@ -498,7 +498,8 @@ export async function screenCandidateWithAI(
   criteria: ScreeningCriteria,
   jobTitle: string,
   jobDescription: string,
-  overrideConfig?: any
+  overrideConfig?: any,
+  timeoutBudgetMs?: number
 ): Promise<{
   screeningResult: ValidatedScreeningOutput;
   modelProvider: string;
@@ -506,6 +507,22 @@ export async function screenCandidateWithAI(
   isRuleBasedFallback: boolean;
 }> {
   const safeOverrides: any = { ...(overrideConfig || {}) };
+
+  // Fast-path bypass for instantaneous rule-based evaluation when requested by client or retry
+  if (safeOverrides.fastFallback || overrideConfig?.fastFallback) {
+    const ruleBasedResult = evaluateCandidateSemantics(
+      extractedText,
+      candidateSkills,
+      yearsExperience,
+      criteria
+    );
+    return {
+      screeningResult: ruleBasedResult,
+      modelProvider: 'rule-based-engine',
+      modelName: `${overrideConfig?.model || 'Semantic Equivalence Matrix'} (Instant Fallback)`,
+      isRuleBasedFallback: true
+    };
+  }
   if (
     !safeOverrides.apiKey ||
     typeof safeOverrides.apiKey !== 'string' ||
@@ -640,7 +657,15 @@ ${extractedText.substring(0, 10000)}
     console.log(`   Candidate Extracted Skills: ${candidateSkills.join(', ')} (${yearsExperience} yrs exp)`);
     console.log(`   Calling Generative AI Engine (Deterministic Greedy Decoding)...`);
 
-    const SCREENING_TIMEOUT_MS = 20000;
+    const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    // On serverless (Vercel), ensure LLM screening never exceeds safe budget (default 5.5s)
+    const defaultServerlessTimeout = 5500;
+    const SCREENING_TIMEOUT_MS = timeoutBudgetMs
+      ? Math.max(1500, timeoutBudgetMs)
+      : isServerless
+      ? defaultServerlessTimeout
+      : 15000;
+
     const llmResult = await callUniversalLLM(
       [
         { role: 'system', content: systemPrompt },
@@ -676,9 +701,11 @@ ${extractedText.substring(0, 10000)}
   } catch (error: unknown) {
     console.error(`❌ [AI SCREENING FAILED WITH CONFIGURED MODEL]:`, error instanceof Error ? error.message : String(error));
     
-    // Automatic AI Resilience: If user-configured custom endpoint fails, fall back to official Gemini AI if available
+    // Automatic AI Resilience: Only attempt secondary Gemini fallback if running locally with ample execution budget
+    // On Vercel serverless, running another remote LLM will exceed the 10s container limit and trigger HTTP 504
+    const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
     const geminiKey = process.env.GEMINI_API_KEY;
-    if (config.provider !== 'gemini' && geminiKey && geminiKey.trim()) {
+    if (!isServerless && config.provider !== 'gemini' && geminiKey && geminiKey.trim()) {
       try {
         console.log(`🔄 [AI FALLBACK] Retrying screening with Google Gemini 2.5 Flash...`);
         const { callUniversalLLM } = await import('@/lib/llm/client');
@@ -688,7 +715,7 @@ ${extractedText.substring(0, 10000)}
             { role: 'user', content: userPrompt }
           ],
           { provider: 'gemini', model: 'gemini-2.5-flash', apiKey: geminiKey.trim(), temperature: 0.0, maxTokens: 4096 },
-          12000
+          8000
         );
         const rawParsed = extractJsonFromLlmResponse(fallbackLlmResult.content);
         const validated = normalizeScreeningOutput(rawParsed, candidateSkills, yearsExperience);

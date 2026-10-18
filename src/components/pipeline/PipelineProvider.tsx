@@ -412,12 +412,24 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
             const headers: Record<string, string> = {};
             if (activeLlmConfigJson) headers['x-llm-config'] = activeLlmConfigJson;
 
-            const res = await fetch('/api/upload', {
+            let res = await fetch('/api/upload', {
               method: 'POST',
               headers,
               body: formData,
               signal: controller.signal,
             });
+
+            // If the hosting server (e.g. Vercel) times out with 504 / 502, automatically retry once with fast semantic fallback
+            if (res.status === 504 || res.status === 502) {
+              console.warn(`[Pipeline] Server returned HTTP ${res.status}. Retrying with fast semantic fallback...`);
+              headers['x-fast-fallback'] = 'true';
+              res = await fetch('/api/upload', {
+                method: 'POST',
+                headers,
+                body: formData,
+              });
+            }
+
             clearTimeout(timeoutId);
 
             const resText = await res.text();
