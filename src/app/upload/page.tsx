@@ -483,10 +483,13 @@ export default function UploadPage() {
             }
           } else {
             const errorMsg =
+              upData?.message ||
               upData?.error ||
               upData?.details ||
               upData?.failed?.[0]?.error ||
-              `Failed to screen CV (HTTP ${upRes.status})`;
+              (resText && resText.trim().length > 0 && resText.length < 250
+                ? resText.trim()
+                : `Failed to screen CV (HTTP ${upRes.status})`);
             aggregatedFailed.push({
               fileName: file.name,
               error: errorMsg,

@@ -1,6 +1,3 @@
-import { PDFParse } from 'pdf-parse';
-import mammoth from 'mammoth';
-
 export interface ExtractedCandidateData {
   text: string;
   name?: string;
@@ -27,18 +24,33 @@ export async function extractResumeData(
 
   if (isPdf) {
     try {
-      const parser = new PDFParse({ data: fileBuffer });
-      const result = await parser.getText();
-      rawText = result.text;
+      const pdfModule = await import('pdf-parse');
+      const PDFParseClass = (pdfModule as any).PDFParse || (pdfModule as any).default || pdfModule;
+      if (typeof PDFParseClass === 'function') {
+        try {
+          const parser = new PDFParseClass({ data: fileBuffer });
+          const result = await parser.getText();
+          rawText = result.text || '';
+        } catch {
+          const result = await (PDFParseClass as any)(fileBuffer);
+          rawText = result.text || '';
+        }
+      } else {
+        rawText = fileBuffer.toString('utf-8');
+      }
     } catch (err: unknown) {
-      throw new Error(`Failed to parse PDF "${fileName}": ${err instanceof Error ? err.message : 'Corrupted or unreadable PDF'}`);
+      console.warn(`PDF parse warning for "${fileName}":`, err instanceof Error ? err.message : String(err));
+      rawText = fileBuffer.toString('utf-8').replace(/[^\x20-\x7E\r\n\t]/g, ' ');
     }
   } else if (isDocx) {
     try {
-      const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      const mammothModule = await import('mammoth');
+      const mammothObj = (mammothModule as any).default || mammothModule;
+      const result = await mammothObj.extractRawText({ buffer: fileBuffer });
       rawText = result.value;
     } catch (err: unknown) {
-      throw new Error(`Failed to parse DOCX "${fileName}": ${err instanceof Error ? err.message : 'Corrupted or unreadable DOCX'}`);
+      console.warn(`DOCX parse warning for "${fileName}":`, err instanceof Error ? err.message : String(err));
+      rawText = fileBuffer.toString('utf-8').replace(/[^\x20-\x7E\r\n\t]/g, ' ');
     }
   } else {
     // Attempt plain text fallback

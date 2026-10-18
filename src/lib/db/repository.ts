@@ -370,6 +370,36 @@ const DEFAULT_INTERVIEWER: Interviewer = {
 let memoryStore: RecruitmentStore | null = null;
 let lastStoreMtime: number = 0;
 
+export function ensureStoreCollections(store: RecruitmentStore): RecruitmentStore {
+  if (!store) return store;
+  if (!Array.isArray(store.jobs) || store.jobs.length === 0) store.jobs = [DEFAULT_JOB];
+  if (!Array.isArray(store.criteria) || store.criteria.length === 0) store.criteria = [DEFAULT_CRITERIA];
+  if (!Array.isArray(store.candidates)) store.candidates = [];
+  if (!Array.isArray(store.cv_documents)) store.cv_documents = [];
+  if (!Array.isArray(store.applications)) store.applications = [];
+  if (!Array.isArray(store.screening_runs)) store.screening_runs = [];
+  if (!Array.isArray(store.assessment_assignments)) store.assessment_assignments = [];
+  if (!Array.isArray(store.interviews)) store.interviews = [];
+  if (!Array.isArray(store.interviewers) || store.interviewers.length === 0) store.interviewers = [DEFAULT_INTERVIEWER];
+  if (!Array.isArray(store.import_batches)) store.import_batches = [];
+  if (!Array.isArray(store.audit_logs)) store.audit_logs = [];
+  if (!Array.isArray(store.retention_requests)) store.retention_requests = [];
+  if (!Array.isArray(store.sent_emails)) store.sent_emails = [];
+  if (!Array.isArray(store.assessment_configs) || store.assessment_configs.length === 0) {
+    store.assessment_configs = JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS));
+  }
+  if (!store.assessment_config) {
+    store.assessment_config = store.assessment_configs[0];
+  }
+  for (const job of store.jobs) {
+    if (!job.criteria) {
+      const matched = store.criteria.find(c => c.job_id === job.id);
+      job.criteria = matched || DEFAULT_CRITERIA;
+    }
+  }
+  return store;
+}
+
 let cloudStoreHydrated = false;
 async function hydrateStoreFromSupabase(): Promise<void> {
   if (cloudStoreHydrated || isTestEnv) return;
@@ -384,9 +414,9 @@ async function hydrateStoreFromSupabase(): Promise<void> {
       if (text && text.trim()) {
         const parsed = JSON.parse(text);
         if (parsed.jobs && Array.isArray(parsed.jobs)) {
-          memoryStore = parsed;
+          memoryStore = ensureStoreCollections(parsed);
           cloudStoreHydrated = true;
-          try { fs.writeFileSync(TMP_STORE_FILE, text, 'utf-8'); } catch {}
+          try { fs.writeFileSync(TMP_STORE_FILE, JSON.stringify(memoryStore, null, 2), 'utf-8'); } catch {}
         }
       }
     }
@@ -415,19 +445,12 @@ function getStore(): RecruitmentStore {
       if (!memoryStore || stats.mtimeMs > lastStoreMtime) {
         const data = fs.readFileSync(STORE_FILE, 'utf-8');
         if (data && data.trim()) {
-          memoryStore = JSON.parse(data);
+          memoryStore = ensureStoreCollections(JSON.parse(data));
           lastStoreMtime = stats.mtimeMs;
-          if (!memoryStore!.sent_emails) memoryStore!.sent_emails = [];
-          if (!memoryStore!.assessment_configs || memoryStore!.assessment_configs.length === 0) {
-            memoryStore!.assessment_configs = JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS));
-          }
-          if (!memoryStore!.assessment_config) {
-            memoryStore!.assessment_config = memoryStore!.assessment_configs[0];
-          }
-          return memoryStore!;
+          return memoryStore;
         }
       } else {
-        return memoryStore;
+        return ensureStoreCollections(memoryStore);
       }
     }
   } catch {
@@ -441,15 +464,15 @@ function getStore(): RecruitmentStore {
       if (data && data.trim()) {
         const parsed = JSON.parse(data);
         if (parsed.jobs && Array.isArray(parsed.jobs)) {
-          memoryStore = parsed;
-          return memoryStore!;
+          memoryStore = ensureStoreCollections(parsed);
+          return memoryStore;
         }
       }
     }
   } catch {}
 
   if (memoryStore) {
-    return memoryStore;
+    return ensureStoreCollections(memoryStore);
   }
 
   // Trigger cloud hydration for serverless cold-starts
@@ -487,12 +510,13 @@ function getStore(): RecruitmentStore {
     assessment_configs: JSON.parse(JSON.stringify(DEFAULT_ASSESSMENT_CONFIGS))
   };
 
-  memoryStore = initialStore;
+  memoryStore = ensureStoreCollections(initialStore);
   saveStore(initialStore);
   return initialStore;
 }
 
 function saveStore(store: RecruitmentStore): void {
+  ensureStoreCollections(store);
   memoryStore = store;
   try {
     if (!fs.existsSync(DATA_DIR)) {
@@ -656,6 +680,15 @@ export const db = {
     store.criteria = store.criteria.filter(c => c.job_id !== id);
     saveStore(store);
     return true;
+  },
+
+  getCriteria(): ScreeningCriteria[] {
+    return getStore().criteria;
+  },
+
+  getCriteriaByJobId(jobId: string): ScreeningCriteria | null {
+    const store = getStore();
+    return store.criteria.find(c => c.job_id === jobId) || null;
   },
 
   // Candidates & Applications

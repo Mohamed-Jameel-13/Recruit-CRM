@@ -13,6 +13,15 @@ export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 function getUploadDir(): string {
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NODE_ENV === 'production') {
+    const tmpDir = path.join(os.tmpdir(), 'recruitai_uploads');
+    try {
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+    } catch {}
+    return tmpDir;
+  }
   try {
     const localDir = path.resolve(process.cwd(), '.data', 'uploads');
     if (!fs.existsSync(localDir)) {
@@ -65,6 +74,14 @@ export async function POST(req: NextRequest) {
         description: 'Autonomous recruitment pipeline default role',
         status: 'active'
       });
+    }
+
+    if (!job.criteria) {
+      job.criteria = db.getCriteriaByJobId(job.id) || undefined;
+      if (!job.criteria) {
+        const allCrit = db.getCriteria();
+        job.criteria = allCrit[0] || undefined;
+      }
     }
 
     const calendlyLinkParam = ((formData.get('calendlyLink') || formData.get('calendly_link')) as string) || '';
@@ -235,26 +252,34 @@ export async function POST(req: NextRequest) {
 
           if (isMatch) {
             isShortlisted = true;
-            db.approveForAssessment(application.id, 'Autonomous Screening AI Policy', assessmentConfigId || job.assessment_config_id);
-            const assignment = db.getAssessmentByApplicationId(application.id);
+            try {
+              db.approveForAssessment(application.id, 'Autonomous Screening AI Policy', assessmentConfigId || job.assessment_config_id);
+              const assignment = db.getAssessmentByApplicationId(application.id);
 
-            if (assignment) {
-              const customFormUrl = formData.get('assessmentUrl') as string;
-              if (customFormUrl && customFormUrl.trim()) {
-                assignment.assessment_url = customFormUrl.trim();
+              if (assignment) {
+                const customFormUrl = formData.get('assessmentUrl') as string;
+                if (customFormUrl && customFormUrl.trim()) {
+                  assignment.assessment_url = customFormUrl.trim();
+                }
+                testUrl = assignment.assessment_url || `/assessment/take/${assignment.id}`;
+
+                // Send Assessment Form Invitation Email
+                try {
+                  emailDispatcher.sendAssessmentInvitation({
+                    applicationId: application.id,
+                    candidateEmail: candidate.email,
+                    candidateName: `${firstName} ${lastName}`.trim(),
+                    jobTitle: job.title,
+                    testUrl,
+                    passThreshold: assignment.pass_threshold_percentage || 70
+                  });
+                  emailSent = true;
+                } catch (emailErr) {
+                  console.warn('Non-fatal email dispatch warning:', emailErr);
+                }
               }
-              testUrl = assignment.assessment_url || `/assessment/take/${assignment.id}`;
-
-              // Send Assessment Form Invitation Email
-              emailDispatcher.sendAssessmentInvitation({
-                applicationId: application.id,
-                candidateEmail: candidate.email,
-                candidateName: `${firstName} ${lastName}`.trim(),
-                jobTitle: job.title,
-                testUrl,
-                passThreshold: assignment.pass_threshold_percentage || 70
-              });
-              emailSent = true;
+            } catch (approvalErr) {
+              console.warn('Non-fatal assessment approval warning:', approvalErr);
             }
           }
         }
@@ -277,16 +302,18 @@ export async function POST(req: NextRequest) {
         });
       } catch (parseErr: unknown) {
         const errorMsg = parseErr instanceof Error ? parseErr.message : 'Failed to extract resume contents.';
-        db.saveCVDocument({
-          batch_id: batch.id,
-          file_name: fileName,
-          file_path: filePath,
-          file_size_bytes: fileSize,
-          mime_type: mimeType,
-          file_hash: hash,
-          parsing_status: 'failed',
-          error_message: errorMsg
-        });
+        try {
+          db.saveCVDocument({
+            batch_id: batch.id,
+            file_name: fileName,
+            file_path: filePath,
+            file_size_bytes: fileSize,
+            mime_type: mimeType,
+            file_hash: hash,
+            parsing_status: 'failed',
+            error_message: errorMsg
+          });
+        } catch {}
 
         failedResults.push({
           fileName,
@@ -298,12 +325,14 @@ export async function POST(req: NextRequest) {
     // Update batch status
     const currentProcessed = (batch.processed_files || 0) + processedResults.length;
     const currentFailed = (batch.failed_files || 0) + failedResults.length;
-    db.updateBatch(batch.id, {
-      processed_files: currentProcessed,
-      failed_files: currentFailed,
-      status: currentFailed === 0 ? 'completed' : currentProcessed > 0 ? 'partial_failure' : 'failed',
-      error_summary: currentFailed > 0 ? `${currentFailed} files failed processing` : undefined
-    });
+    try {
+      db.updateBatch(batch.id, {
+        processed_files: currentProcessed,
+        failed_files: currentFailed,
+        status: currentFailed === 0 ? 'completed' : currentProcessed > 0 ? 'partial_failure' : 'failed',
+        error_summary: currentFailed > 0 ? `${currentFailed} files failed processing` : undefined
+      });
+    } catch {}
 
     return NextResponse.json({
       success: true,
@@ -315,10 +344,12 @@ export async function POST(req: NextRequest) {
       failed: failedResults
     });
   } catch (err: unknown) {
-    console.error('Batch upload error:', err);
+    const errorDetails = err instanceof Error ? err.message : String(err);
+    console.error('Batch upload error:', errorDetails);
     return NextResponse.json({
       error: 'Internal server error during upload processing.',
-      details: err instanceof Error ? err.message : String(err)
+      message: errorDetails,
+      details: errorDetails
     }, { status: 500 });
   }
 }
