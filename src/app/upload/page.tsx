@@ -433,12 +433,29 @@ export default function UploadPage() {
         formData.append('files', file);
 
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 45000);
+
           const upRes = await fetch('/api/upload', {
             method: 'POST',
             body: formData,
+            signal: controller.signal,
           });
-          const upData = await upRes.json();
-          if (upRes.ok && upData.success) {
+          clearTimeout(timeoutId);
+
+          const resText = await upRes.text();
+          let upData: any = null;
+          try {
+            upData = resText ? JSON.parse(resText) : null;
+          } catch {
+            throw new Error(
+              `Server response error (HTTP ${upRes.status}): ${
+                resText ? resText.slice(0, 150) : 'Empty response from server (possible timeout or socket reset)'
+              }`
+            );
+          }
+
+          if (upRes.ok && upData?.success) {
             if (!sharedBatchId && upData.batchId) {
               sharedBatchId = upData.batchId;
             }
@@ -465,15 +482,41 @@ export default function UploadPage() {
               pollAssessmentStatuses([...aggregatedProcessed]);
             }
           } else {
+            const errorMsg =
+              upData?.error ||
+              upData?.details ||
+              upData?.failed?.[0]?.error ||
+              `Failed to screen CV (HTTP ${upRes.status})`;
             aggregatedFailed.push({
               fileName: file.name,
-              error: upData.error || 'Failed to screen CV',
+              error: errorMsg,
+            });
+            setUploadResult({
+              success: true,
+              totalFiles: total,
+              processedCount: aggregatedProcessed.length,
+              failedCount: aggregatedFailed.length,
+              processed: [...aggregatedProcessed],
+              failed: [...aggregatedFailed],
             });
           }
         } catch (fetchErr) {
+          const isTimeout = fetchErr instanceof Error && fetchErr.name === 'AbortError';
           aggregatedFailed.push({
             fileName: file.name,
-            error: fetchErr instanceof Error ? fetchErr.message : 'Network error during upload',
+            error: isTimeout
+              ? 'Request timed out after 45s. External LLM took too long.'
+              : fetchErr instanceof Error
+              ? fetchErr.message
+              : 'Network error during upload',
+          });
+          setUploadResult({
+            success: true,
+            totalFiles: total,
+            processedCount: aggregatedProcessed.length,
+            failedCount: aggregatedFailed.length,
+            processed: [...aggregatedProcessed],
+            failed: [...aggregatedFailed],
           });
         }
       }

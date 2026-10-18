@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { synthesizeJobCriteria } from '@/lib/jobs/synthesizer';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const jobs = db.getJobs();
   return NextResponse.json({ jobs });

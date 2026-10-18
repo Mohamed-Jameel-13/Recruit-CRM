@@ -536,7 +536,8 @@ export interface ChatMessage {
  */
 export async function callUniversalLLM(
   messages: ChatMessage[],
-  configOverrides?: Partial<LLMConfig>
+  configOverrides?: Partial<LLMConfig>,
+  timeoutMs: number = 30000
 ): Promise<{ content: string; model: string; provider: string; latencyMs: number }> {
   const baseConfig = await getLLMConfigAsync();
   const config = { ...baseConfig, ...configOverrides };
@@ -628,7 +629,7 @@ export async function callUniversalLLM(
     console.log(`🤖 [AI Call] Provider: Anthropic Claude | Model: ${payload.model} | Endpoint: ${endpoint}`);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const res = await fetch(endpoint, {
@@ -643,14 +644,13 @@ export async function callUniversalLLM(
         signal: controller.signal
       });
 
-      clearTimeout(timeoutId);
-
       if (!res.ok) {
         const errText = await res.text();
         throw new Error(`Anthropic Claude API failed (${res.status}): ${errText}`);
       }
 
       const data = await res.json();
+      clearTimeout(timeoutId);
       const content = data.content?.[0]?.text || '';
       const latencyMs = Date.now() - startTime;
       console.log(`⚡ [AI Call] Success in ${latencyMs}ms (${content.length} chars generated)`);
@@ -725,7 +725,7 @@ export async function callUniversalLLM(
   console.log(`   Model: ${payload.model} | Temp: ${payload.temperature}`);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     let res = await fetch(endpoint, {
@@ -746,8 +746,6 @@ export async function callUniversalLLM(
       });
     }
 
-    clearTimeout(timeoutId);
-
     if (!res.ok) {
       const errText = await res.text();
       let cleanError = errText;
@@ -767,6 +765,7 @@ export async function callUniversalLLM(
     }
 
     const data = await res.json();
+    clearTimeout(timeoutId);
     let content = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || '';
     
     // Fallback for reasoning models like DeepSeek R1 if content is in reasoning_content

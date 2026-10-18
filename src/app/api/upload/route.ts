@@ -2,13 +2,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { db } from '@/lib/db/repository';
 import { extractResumeData } from '@/lib/extractor/parser';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
 import { emailDispatcher } from '@/lib/email/dispatcher';
 import { ScreeningRecommendation } from '@/types/database';
 
-const UPLOAD_DIR = path.resolve(process.cwd(), '.data', 'uploads');
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
+function getUploadDir(): string {
+  try {
+    const localDir = path.resolve(process.cwd(), '.data', 'uploads');
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+    return localDir;
+  } catch {
+    const tmpDir = path.join(os.tmpdir(), 'recruitai_uploads');
+    try {
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+    } catch {}
+    return tmpDir;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -61,10 +81,8 @@ export async function POST(req: NextRequest) {
       db.updateJob(job.id, jobUpdates);
     }
 
-    // Ensure upload storage directory exists
-    if (!fs.existsSync(UPLOAD_DIR)) {
-      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-    }
+    // Ensure upload storage directory exists safely
+    const uploadDir = getUploadDir();
 
     const batchIdParam = (formData.get('batchId') as string) || '';
     let batch = batchIdParam ? db.getBatchById(batchIdParam) : null;
@@ -116,10 +134,14 @@ export async function POST(req: NextRequest) {
       // 3. Compute SHA-256 hash for deduplication
       const hash = crypto.createHash('sha256').update(buffer).digest('hex');
 
-      // 4. Save to private storage
+      // 4. Save to storage (graceful in serverless / read-only)
       const safeStoredFileName = `${Date.now()}_${hash.substring(0, 12)}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      const filePath = path.join(UPLOAD_DIR, safeStoredFileName);
-      fs.writeFileSync(filePath, buffer);
+      const filePath = path.join(uploadDir, safeStoredFileName);
+      try {
+        fs.writeFileSync(filePath, buffer);
+      } catch (writeErr) {
+        console.warn('Storage write non-fatal warning (running in serverless or read-only mode):', writeErr);
+      }
 
       try {
         // 5. Extract Text and Contact Info

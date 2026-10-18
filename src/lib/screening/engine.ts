@@ -391,10 +391,28 @@ ${extractedText.substring(0, 10000)}
     console.log(`   Candidate Extracted Skills: ${candidateSkills.join(', ')} (${yearsExperience} yrs exp)`);
     console.log(`   Calling Generative AI Engine...`);
 
-    const llmResult = await callUniversalLLM([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ]);
+    // Enforce hard 20s timeout via Promise.race so slow LLMs or congested tunnels never trigger 504 serverless gateway timeout
+    const SCREENING_TIMEOUT_MS = 20000;
+    let timerId: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timerId = setTimeout(() => reject(new Error('AI screening latency exceeded 20s timeout limit')), SCREENING_TIMEOUT_MS);
+    });
+
+    const llmCallPromise = callUniversalLLM(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      { maxTokens: 2048 },
+      SCREENING_TIMEOUT_MS
+    );
+
+    let llmResult: { content: string; model: string; provider: string; latencyMs: number };
+    try {
+      llmResult = await Promise.race([llmCallPromise, timeoutPromise]);
+    } finally {
+      if (timerId) clearTimeout(timerId);
+    }
 
     // Parse JSON safely from LLM output (cleaning potential markdown code blocks)
     let cleaned = llmResult.content.trim();
