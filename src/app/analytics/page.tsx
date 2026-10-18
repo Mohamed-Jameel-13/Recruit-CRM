@@ -22,11 +22,15 @@ export default function AnalyticsPage() {
   useEffect(() => {
     fetchJobs();
     fetchAnalytics('all');
-  }, []);
+    const timer = setInterval(() => {
+      fetchAnalytics(selectedJobId);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [selectedJobId]);
 
   async function fetchJobs() {
     try {
-      const res = await fetch('/api/jobs');
+      const res = await fetch('/api/jobs', { cache: 'no-store' });
       const data = await res.json();
       setJobs(data.jobs || []);
     } catch (err) {
@@ -37,7 +41,7 @@ export default function AnalyticsPage() {
   async function fetchAnalytics(jobId: string) {
     setLoading(true);
     try {
-      const res = await fetch(`/api/analytics?jobId=${jobId}`);
+      const res = await fetch(`/api/analytics?jobId=${jobId}`, { cache: 'no-store' });
       const data = await res.json();
       setAnalytics(data.analytics || null);
     } catch (err) {

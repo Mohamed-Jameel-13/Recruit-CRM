@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const body = await req.json();
     const { applicationId } = body;
 
@@ -65,6 +68,10 @@ export async function POST(req: NextRequest) {
     });
 
     const updatedApp = db.getApplicationById(application.id);
+    try {
+      await db.persistStoreAsync();
+    } catch {}
+
     return NextResponse.json({ success: true, screeningRun: run, application: updatedApp });
   } catch (err: unknown) {
     return NextResponse.json({ 

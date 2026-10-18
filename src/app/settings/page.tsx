@@ -126,9 +126,15 @@ export default function SettingsPage() {
 
         // Cache to browser localStorage for instant UI recovery
         try {
+          let existingKey: string | undefined;
+          try {
+            const parsed = JSON.parse(localStorage.getItem('recruitai_llm_config') || '{}');
+            existingKey = parsed.apiKey;
+          } catch {}
           localStorage.setItem('recruitai_llm_config', JSON.stringify({
             provider: c.provider,
             baseUrl: c.baseUrl,
+            apiKey: existingKey || undefined,
             model: c.model,
             temperature: c.temperature,
             maxTokens: c.maxTokens,
@@ -316,10 +322,16 @@ export default function SettingsPage() {
 
       // Persist to browser localStorage
       try {
+        let existingKey: string | undefined;
+        try {
+          const parsed = JSON.parse(localStorage.getItem('recruitai_llm_config') || '{}');
+          existingKey = parsed.apiKey;
+        } catch {}
+        const resolvedApiKey = apiKey.trim() || existingKey || undefined;
         localStorage.setItem('recruitai_llm_config', JSON.stringify({
           provider,
           baseUrl,
-          apiKey: apiKey.trim() || undefined,
+          apiKey: resolvedApiKey,
           model,
           temperature,
           maxTokens,

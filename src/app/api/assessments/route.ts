@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET() {
+  await db.ensureHydrated(true);
   const assessments = db.getAssessments();
   const applications = db.getApplications();
   const interviews = db.getInterviews();
@@ -21,5 +25,11 @@ export async function GET() {
     // Also expose raw arrays for polling in the upload page tracker
     assignments: assessments,
     interviews
+  }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    }
   });
 }

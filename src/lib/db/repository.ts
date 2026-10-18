@@ -401,11 +401,28 @@ export function ensureStoreCollections(store: RecruitmentStore): RecruitmentStor
 }
 
 let cloudStoreHydrated = false;
-async function hydrateStoreFromSupabase(): Promise<void> {
-  if (cloudStoreHydrated || isTestEnv) return;
+let dbBucketEnsured = false;
+
+async function ensureDbStorageBucket(supabase: any): Promise<boolean> {
+  if (dbBucketEnsured) return true;
+  try {
+    const { error } = await supabase.storage.createBucket('system_config', { public: false });
+    if (!error || error.statusCode === '409' || (error as any).code === 'BucketAlreadyExists' || error.message?.includes('already exists')) {
+      dbBucketEnsured = true;
+      return true;
+    }
+  } catch {}
+  return true;
+}
+
+export async function hydrateStoreFromSupabase(forceRefresh: boolean = false): Promise<RecruitmentStore | null> {
+  if (isTestEnv) return memoryStore;
+  if (cloudStoreHydrated && !forceRefresh && memoryStore) {
+    return memoryStore;
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return;
+  if (!url || !key) return memoryStore;
   try {
     const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     const { data, error } = await supabase.storage.from('system_config').download('recruitment_store.json');
@@ -417,24 +434,39 @@ async function hydrateStoreFromSupabase(): Promise<void> {
           memoryStore = ensureStoreCollections(parsed);
           cloudStoreHydrated = true;
           try { fs.writeFileSync(TMP_STORE_FILE, JSON.stringify(memoryStore, null, 2), 'utf-8'); } catch {}
+          return memoryStore;
         }
       }
+    } else if (error) {
+      console.warn('Notice: Supabase download recruitment_store.json:', error.message);
     }
-  } catch {}
+  } catch (err) {
+    console.warn('Notice: Could not hydrate from Supabase Storage:', err);
+  }
+  return memoryStore;
 }
 
-async function syncStoreToSupabase(store: RecruitmentStore): Promise<void> {
-  if (isTestEnv) return;
+export async function syncStoreToSupabase(store: RecruitmentStore): Promise<boolean> {
+  if (isTestEnv) return true;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return;
+  if (!url || !key) return false;
   try {
     const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-    await supabase.storage.from('system_config').upload('recruitment_store.json', JSON.stringify(store, null, 2), {
+    await ensureDbStorageBucket(supabase);
+    const { error } = await supabase.storage.from('system_config').upload('recruitment_store.json', JSON.stringify(store, null, 2), {
       contentType: 'application/json',
       upsert: true
     });
-  } catch {}
+    if (error) {
+      console.warn('Failed uploading recruitment_store.json to Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Notice: Exception during syncStoreToSupabase:', err);
+    return false;
+  }
 }
 
 function getStore(): RecruitmentStore {
@@ -511,7 +543,17 @@ function getStore(): RecruitmentStore {
   };
 
   memoryStore = ensureStoreCollections(initialStore);
-  saveStore(initialStore);
+  // Write locally only; DO NOT overwrite Supabase with empty initialStore on cold start
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(STORE_FILE, JSON.stringify(initialStore, null, 2), 'utf-8');
+  } catch {}
+  try {
+    fs.writeFileSync(TMP_STORE_FILE, JSON.stringify(initialStore, null, 2), 'utf-8');
+  } catch {}
+
   return initialStore;
 }
 
@@ -545,11 +587,22 @@ function saveStore(store: RecruitmentStore): void {
 
   // Sync to Supabase Storage in cloud
   if (!isTestEnv) {
-    syncStoreToSupabase(store).catch(() => {});
+    syncStoreToSupabase(store).catch((err) => console.warn('Background sync to Supabase warning:', err));
   }
 }
 
 export const db = {
+  // Ensure the cloud store is hydrated before reading/writing in serverless
+  async ensureHydrated(forceRefresh: boolean = false): Promise<RecruitmentStore> {
+    await hydrateStoreFromSupabase(forceRefresh);
+    return getStore();
+  },
+
+  // Explicitly persist and await storage commit to Supabase in serverless before returning API responses
+  async persistStoreAsync(): Promise<boolean> {
+    const store = getStore();
+    return await syncStoreToSupabase(store);
+  },
   // Jobs
   resetData(keepBaseJob: boolean = true): RecruitmentStore {
     const resetStore: RecruitmentStore = {

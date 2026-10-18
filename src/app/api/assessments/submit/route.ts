@@ -3,8 +3,11 @@ import { db } from '@/lib/db/repository';
 import { callUniversalLLM } from '@/lib/llm/client';
 import { AssessmentQuestion } from '@/types/database';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const body = await req.json();
     const { 
       assignmentId, 
@@ -267,6 +270,10 @@ Respond ONLY with valid JSON:
       const sentEmails = db.getSentEmails().filter(e => e.metadata?.applicationId === application.id && e.template_type === 'ROUND_2_INTERVIEW_INVITATION');
       emailReceipt = sentEmails.length > 0 ? sentEmails[0] : null;
     }
+
+    try {
+      await db.persistStoreAsync();
+    } catch {}
 
     const refId = 'REF-' + (assignment.id.replace(/[^0-9a-zA-Z]/g, '').slice(-8).toUpperCase() || '2026');
 

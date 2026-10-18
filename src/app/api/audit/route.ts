@@ -1,9 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET() {
+  await db.ensureHydrated(true);
   const auditLogs = db.getAuditLogs();
-  return NextResponse.json({ logs: auditLogs });
+  return NextResponse.json({ logs: auditLogs }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    }
+  });
 }
 
 export async function POST(req: NextRequest) {

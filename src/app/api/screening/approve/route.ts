@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
-import { emailDispatcher } from '@/lib/email/dispatcher';
+import { emailDispatcher, getAppBaseUrl } from '@/lib/email/dispatcher';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const body = await req.json();
     const { applicationId, approvedBy } = body;
 
@@ -33,9 +36,14 @@ export async function POST(req: NextRequest) {
         candidateName: `${candidate.first_name} ${candidate.last_name}`.trim(),
         jobTitle: job?.title || 'Senior Full-Stack Cloud Engineer',
         testUrl: assignment.assessment_url || `/assessment/take/${assignment.id}`,
+        baseUrl: getAppBaseUrl(),
         passThreshold: assignment.pass_threshold_percentage || 70
       });
     }
+
+    try {
+      await db.persistStoreAsync();
+    } catch {}
 
     return NextResponse.json({ 
       success: true, 

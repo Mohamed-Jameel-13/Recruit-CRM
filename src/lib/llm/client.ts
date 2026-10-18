@@ -539,8 +539,28 @@ export async function callUniversalLLM(
   configOverrides?: Partial<LLMConfig>,
   timeoutMs: number = 30000
 ): Promise<{ content: string; model: string; provider: string; latencyMs: number }> {
+  const safeOverrides: Partial<LLMConfig> = { ...(configOverrides || {}) };
+  // Never let an empty, undefined, or placeholder apiKey in overrides wipe out the server/database apiKey
+  if (
+    !safeOverrides.apiKey ||
+    typeof safeOverrides.apiKey !== 'string' ||
+    !safeOverrides.apiKey.trim() ||
+    safeOverrides.apiKey === '__KEEP_EXISTING__'
+  ) {
+    delete safeOverrides.apiKey;
+  }
+  if (!safeOverrides.baseUrl || typeof safeOverrides.baseUrl !== 'string' || !safeOverrides.baseUrl.trim()) {
+    delete safeOverrides.baseUrl;
+  }
+  if (!safeOverrides.provider) {
+    delete safeOverrides.provider;
+  }
+  if (!safeOverrides.model) {
+    delete safeOverrides.model;
+  }
+
   const baseConfig = await getLLMConfigAsync();
-  const config = { ...baseConfig, ...configOverrides };
+  const config = { ...baseConfig, ...safeOverrides };
   const startTime = Date.now();
   const activeModel = config.model || 'gemini-2.5-flash';
 
@@ -577,22 +597,39 @@ export async function callUniversalLLM(
     console.log(`🤖 [AI Call] Provider: Google Gemini | Model: ${activeModel}`);
     console.log(`   Prompt Size: ${fullPrompt.length} chars | Temp: ${config.temperature ?? 0.1}`);
 
-    try {
-      const res = await model.generateContent(fullPrompt);
-      const content = res.response.text();
-      const latencyMs = Date.now() - startTime;
-      console.log(`⚡ [AI Call] Success in ${latencyMs}ms (${content.length} chars generated)`);
-      console.log(`============================================================\n`);
-      return {
-        content,
-        model: activeModel,
-        provider: 'Google Gemini',
-        latencyMs,
-      };
-    } catch (geminiErr: unknown) {
-      console.error(`❌ [Google Gemini API Error]:`, geminiErr instanceof Error ? geminiErr.message : String(geminiErr));
-      throw geminiErr;
+    let lastGeminiErr: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) {
+          const backoff = 1500 * Math.pow(2, attempt - 1) + Math.random() * 500;
+          console.log(`⏳ [AI Call] Gemini Rate Limit/Transient error. Retrying in ${Math.round(backoff)}ms (Attempt ${attempt + 1}/3)...`);
+          await new Promise(r => setTimeout(r, backoff));
+        }
+
+        const res = await model.generateContent(fullPrompt);
+        const content = res.response.text();
+        const latencyMs = Date.now() - startTime;
+        console.log(`⚡ [AI Call] Success in ${latencyMs}ms (${content.length} chars generated)`);
+        console.log(`============================================================\n`);
+        return {
+          content,
+          model: activeModel,
+          provider: 'Google Gemini',
+          latencyMs,
+        };
+      } catch (geminiErr: unknown) {
+        lastGeminiErr = geminiErr;
+        const msg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
+        const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('ResourceExhausted') || msg.includes('Too Many Requests');
+        const isTransient = msg.includes('503') || msg.includes('500') || msg.includes('fetch failed') || msg.includes('socket');
+        if (!isRateLimit && !isTransient) {
+          break;
+        }
+      }
     }
+
+    console.error(`❌ [Google Gemini API Error]:`, lastGeminiErr instanceof Error ? lastGeminiErr.message : String(lastGeminiErr));
+    throw lastGeminiErr;
   }
 
   // 2. Anthropic Claude (Native Messages API)
@@ -728,23 +765,46 @@ export async function callUniversalLLM(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    let res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        const backoff = 1500 * Math.pow(2, attempt - 1) + Math.random() * 500;
+        console.log(`⏳ [AI Call] Endpoint Rate Limit/Transient error (${res?.status}). Retrying in ${Math.round(backoff)}ms (Attempt ${attempt + 1}/3)...`);
+        await new Promise(r => setTimeout(r, backoff));
+      }
 
-    // If request failed and response_format was specified, retry once without response_format
-    if (!res.ok && payload.response_format) {
-      console.warn(`[AI Call] Endpoint returned ${res.status} with response_format. Retrying standard format...`);
-      delete payload.response_format;
       res = await fetch(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
+
+      // If request failed and response_format was specified, retry once without response_format
+      if (!res.ok && payload.response_format && res.status !== 429) {
+        console.warn(`[AI Call] Endpoint returned ${res.status} with response_format. Retrying standard format...`);
+        delete payload.response_format;
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      }
+
+      if (res.ok) {
+        break;
+      }
+
+      if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
+        continue;
+      } else {
+        break;
+      }
+    }
+
+    if (!res) {
+      throw new Error(`LLM API request failed: No response received from endpoint "${endpoint}".`);
     }
 
     if (!res.ok) {

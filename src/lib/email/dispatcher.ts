@@ -2,6 +2,22 @@ import { db } from '@/lib/db/repository';
 import { SentEmail } from '@/types/database';
 import { dispatchRealSmtpEmail } from './mailer';
 
+export function getAppBaseUrl(overrideUrl?: string): string {
+  if (overrideUrl && (overrideUrl.startsWith('http://') || overrideUrl.startsWith('https://'))) {
+    return overrideUrl.replace(/\/+$/, '');
+  }
+  if (process.env.NEXT_PUBLIC_APP_URL && process.env.NEXT_PUBLIC_APP_URL.trim()) {
+    return process.env.NEXT_PUBLIC_APP_URL.trim().replace(/\/+$/, '');
+  }
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim().replace(/\/+$/, '')}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.trim().replace(/\/+$/, '')}`;
+  }
+  return 'https://recruit-crm-peach.vercel.app';
+}
+
 export const emailDispatcher = {
   /**
    * Dispatch Technical Assessment invitation email to candidate
@@ -14,6 +30,7 @@ export const emailDispatcher = {
     testUrl: string;
     dueDate?: string;
     passThreshold?: number;
+    baseUrl?: string;
   }): SentEmail {
     const {
       applicationId,
@@ -22,14 +39,19 @@ export const emailDispatcher = {
       jobTitle,
       testUrl,
       dueDate = '7 days from receipt',
-      passThreshold = 70
+      passThreshold = 70,
+      baseUrl: paramBaseUrl
     } = params;
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = getAppBaseUrl(paramBaseUrl);
     const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
     const absoluteTestUrl = testUrl.startsWith('http://') || testUrl.startsWith('https://')
       ? testUrl
       : `${cleanBaseUrl}/${testUrl.replace(/^\/+/, '')}`;
+
+    const localhostHint = cleanBaseUrl.includes('localhost') || cleanBaseUrl.includes('127.0.0.1')
+      ? `<br /><span style="color: #9ca3af; font-size: 11px;">(Testing locally on your machine? <a href="http://localhost:3000/${testUrl.replace(/^\/+/, '')}" style="color: #2563eb;">Open via http://localhost:3000</a>)</span>`
+      : '';
 
     const subject = `Action Required: Technical Assessment for ${jobTitle}`;
     const bodyHtml = `
@@ -69,8 +91,7 @@ export const emailDispatcher = {
         
         <p style="font-size: 12px; color: #6b7280; text-align: center; margin-bottom: 24px; line-height: 1.5;">
           Direct Link: <a href="${absoluteTestUrl}" style="color: #2563eb; text-decoration: underline;">${absoluteTestUrl}</a>
-          <br />
-          <span style="color: #9ca3af; font-size: 11px;">(Testing locally on your machine? <a href="http://localhost:3000/${testUrl.replace(/^\/+/, '')}" style="color: #2563eb;">Open via http://localhost:3000</a>)</span>
+          ${localhostHint}
         </p>
         
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />

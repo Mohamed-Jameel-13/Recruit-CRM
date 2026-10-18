@@ -4,14 +4,23 @@ import { synthesizeJobCriteria } from '@/lib/jobs/synthesizer';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET() {
+  await db.ensureHydrated(true);
   const jobs = db.getJobs();
-  return NextResponse.json({ jobs });
+  return NextResponse.json({ jobs }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    }
+  });
 }
 
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const body = await req.json();
     if (!body.title || !body.description) {
       return NextResponse.json({ error: 'Role title and job description are required.' }, { status: 400 });
@@ -41,6 +50,10 @@ export async function POST(req: NextRequest) {
         pass_threshold_score: body.pass_threshold_score ?? synthesized.passThresholdScore
       }
     );
+
+    try {
+      await db.persistStoreAsync();
+    } catch {}
 
     return NextResponse.json({ 
       success: true, 

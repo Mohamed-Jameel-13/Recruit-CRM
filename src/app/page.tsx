@@ -45,8 +45,8 @@ export default function DashboardPage() {
   async function loadData() {
     try {
       const [resAnalytics, resApps] = await Promise.all([
-        fetch('/api/analytics'),
-        fetch('/api/applications'),
+        fetch('/api/analytics', { cache: 'no-store' }),
+        fetch('/api/applications', { cache: 'no-store' }),
       ]);
       const dataAnalytics = await resAnalytics.json();
       const dataApps = await resApps.json();
@@ -61,8 +61,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadData();
-    // Auto-refresh analytics every 15 seconds to reflect pipeline progress
-    const timer = setInterval(loadData, 15000);
+    // Auto-refresh analytics every 5 seconds to reflect live pipeline progress
+    const timer = setInterval(loadData, 5000);
     return () => clearInterval(timer);
   }, []);
 

@@ -39,8 +39,32 @@ function getUploadDir(): string {
   }
 }
 
+function getRequestBaseUrl(req: NextRequest): string {
+  const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
+  const forwardedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
+  if (forwardedHost && !forwardedHost.includes('localhost') && !forwardedHost.includes('127.0.0.1')) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+  const origin = req.headers.get('origin');
+  if (origin && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+    return origin;
+  }
+  if (process.env.NEXT_PUBLIC_APP_URL && process.env.NEXT_PUBLIC_APP_URL.trim()) {
+    return process.env.NEXT_PUBLIC_APP_URL.trim().replace(/\/+$/, '');
+  }
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim().replace(/\/+$/, '')}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.trim().replace(/\/+$/, '')}`;
+  }
+  return 'https://recruit-crm-peach.vercel.app';
+}
+
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
+    const requestBaseUrl = getRequestBaseUrl(req);
     const formData = await req.formData();
     const jobId = formData.get('jobId') as string;
     const roleTitle = (formData.get('roleTitle') as string) || '';
@@ -282,6 +306,7 @@ export async function POST(req: NextRequest) {
                     candidateName: `${firstName} ${lastName}`.trim(),
                     jobTitle: job.title,
                     testUrl,
+                    baseUrl: requestBaseUrl,
                     passThreshold: assignment.pass_threshold_percentage || 70
                   });
                   emailSent = true;
@@ -344,6 +369,13 @@ export async function POST(req: NextRequest) {
         error_summary: currentFailed > 0 ? `${currentFailed} files failed processing` : undefined
       });
     } catch {}
+
+    // Guarantee all screening runs, applications, and batch data are committed to Supabase Storage before returning
+    try {
+      await db.persistStoreAsync();
+    } catch (persistErr) {
+      console.warn('Notice: Non-fatal background storage persist warning:', persistErr);
+    }
 
     return NextResponse.json({
       success: true,

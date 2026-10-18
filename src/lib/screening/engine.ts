@@ -465,9 +465,28 @@ export async function screenCandidateWithAI(
   modelName: string;
   isRuleBasedFallback: boolean;
 }> {
+  const safeOverrides: any = { ...(overrideConfig || {}) };
+  if (
+    !safeOverrides.apiKey ||
+    typeof safeOverrides.apiKey !== 'string' ||
+    !safeOverrides.apiKey.trim() ||
+    safeOverrides.apiKey === '__KEEP_EXISTING__'
+  ) {
+    delete safeOverrides.apiKey;
+  }
+  if (!safeOverrides.baseUrl || typeof safeOverrides.baseUrl !== 'string' || !safeOverrides.baseUrl.trim()) {
+    delete safeOverrides.baseUrl;
+  }
+  if (!safeOverrides.provider) {
+    delete safeOverrides.provider;
+  }
+  if (!safeOverrides.model) {
+    delete safeOverrides.model;
+  }
+
   const { callUniversalLLM, getLLMConfigAsync } = await import('@/lib/llm/client');
   const baseConfig = await getLLMConfigAsync(true);
-  const config = { ...baseConfig, ...(overrideConfig || {}) };
+  const config = { ...baseConfig, ...safeOverrides };
 
   // If local endpoint, tunnel, custom API, or key/headers are provided
   const hasEndpoint =
@@ -569,7 +588,7 @@ ${extractedText.substring(0, 10000)}
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      { maxTokens: config.maxTokens || 4096, ...overrideConfig },
+      { maxTokens: config.maxTokens || 4096, ...safeOverrides },
       SCREENING_TIMEOUT_MS
     );
 

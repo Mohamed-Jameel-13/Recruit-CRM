@@ -5,11 +5,14 @@ import crypto from 'crypto';
 import { db } from '@/lib/db/repository';
 import { extractResumeData } from '@/lib/extractor/parser';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
-import { emailDispatcher } from '@/lib/email/dispatcher';
+import { emailDispatcher, getAppBaseUrl } from '@/lib/email/dispatcher';
 import { ScreeningRecommendation } from '@/types/database';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const demoDir = path.resolve(process.cwd(), 'demo_cvs');
     if (!fs.existsSync(demoDir)) {
       return NextResponse.json({ error: 'demo_cvs directory not found' }, { status: 404 });
@@ -146,6 +149,7 @@ export async function POST(req: NextRequest) {
                 candidateName: `${firstName} ${lastName}`.trim(),
                 jobTitle: job.title,
                 testUrl,
+                baseUrl: getAppBaseUrl(),
                 passThreshold: assignment.pass_threshold_percentage || 70
               });
               emailSent = true;
@@ -190,6 +194,10 @@ export async function POST(req: NextRequest) {
       status: failed.length === 0 ? 'completed' : processed.length > 0 ? 'partial_failure' : 'failed',
       error_summary: failed.length > 0 ? `${failed.length} demo file(s) intentionally failed to test error handling` : undefined
     });
+
+    try {
+      await db.persistStoreAsync();
+    } catch {}
 
     return NextResponse.json({
       success: true,
