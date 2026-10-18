@@ -146,6 +146,7 @@ export interface Application {
   screening_status: ScreeningStatus;
   invitation_status: InvitationStatus;
   assessment_status: AssessmentStatus;
+  assessment_score?: number;
   interview_status: InterviewStatus;
   human_approved: boolean;
   approved_by?: string;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { callUniversalLLM } from '@/lib/llm/client';
+import { emailDispatcher } from '@/lib/email/dispatcher';
 import { AssessmentQuestion } from '@/types/database';
 
 export const dynamic = 'force-dynamic';
@@ -312,8 +313,48 @@ Respond ONLY with valid JSON:
       const interviews = db.getInterviews().filter(i => i.application_id === application.id);
       scheduledInterview = interviews.length > 0 ? interviews[interviews.length - 1] : null;
 
-      const sentEmails = db.getSentEmails().filter(e => e.metadata?.applicationId === application.id && e.template_type === 'ROUND_2_INTERVIEW_INVITATION');
-      emailReceipt = sentEmails.length > 0 ? sentEmails[0] : null;
+      // Ensure recipient email is candidate's actual personal email
+      let recipientEmail = (candidateEmail || candidate?.email || '').trim().toLowerCase();
+      if (!recipientEmail || recipientEmail.endsWith('@example.com') || recipientEmail.startsWith('candidate_')) {
+        if (candidate?.email && !candidate.email.endsWith('@example.com')) {
+          recipientEmail = candidate.email;
+        }
+      }
+
+      // Clean candidate names (avoid numbers or object strings)
+      const rawFullName = `${candidate?.first_name || ''} ${candidate?.last_name || ''}`.trim();
+      const cleanNames = rawFullName.replace(/\d+/g, '').replace(/[^\p{L}\s'-]/gu, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length >= 2);
+      const cleanFirstName = cleanNames[0] ? (cleanNames[0].charAt(0).toUpperCase() + cleanNames[0].slice(1).toLowerCase()) : 'Candidate';
+      const cleanLastName = cleanNames.slice(1).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      const cleanFullName = `${cleanFirstName} ${cleanLastName}`.trim();
+
+      const bookingUrl = scheduledInterview?.meeting_url || job?.calendly_link || 'https://calendly.com';
+
+      // Check if this application already received an interview invitation
+      const existingSentEmail = db.getSentEmails().find(
+        e => (e.metadata as any)?.applicationId === application.id && e.template_type === 'ROUND_2_INTERVIEW_INVITATION'
+      );
+
+      if (!existingSentEmail && recipientEmail && recipientEmail.includes('@')) {
+        try {
+          emailReceipt = await emailDispatcher.sendRound2InterviewInvitation({
+            applicationId: application.id,
+            candidateEmail: recipientEmail,
+            candidateName: cleanFullName,
+            jobTitle: job?.title || 'Senior Software Engineer',
+            score: finalPercentage,
+            meetingUrl: bookingUrl,
+            calendlyUrl: job?.calendly_link || undefined,
+            scheduledStart: scheduledInterview?.scheduled_start,
+            durationMinutes: scheduledInterview?.duration_minutes || 45,
+            interviewerName: scheduledInterview?.interviewer_name || 'Engineering Team'
+          });
+        } catch (mailErr) {
+          console.warn('[Submit Route] Non-fatal email dispatch warning:', mailErr);
+        }
+      } else {
+        emailReceipt = existingSentEmail || null;
+      }
     }
 
     try {

@@ -326,7 +326,7 @@ export async function POST(req: NextRequest) {
 
                 // Send Assessment Form Invitation Email
                 try {
-                  emailDispatcher.sendAssessmentInvitation({
+                  await emailDispatcher.sendAssessmentInvitation({
                     applicationId: application.id,
                     candidateEmail: candidate.email,
                     candidateName: `${firstName} ${lastName}`.trim(),

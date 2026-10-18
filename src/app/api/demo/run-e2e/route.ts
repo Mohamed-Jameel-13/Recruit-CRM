@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
       db.approveForAssessment(item.application.id, 'Autonomous Pipeline Engine');
       const assignment = db.getAssessmentByApplicationId(item.application.id);
       if (assignment) {
-        const email = emailDispatcher.sendAssessmentInvitation({
+        const email = await emailDispatcher.sendAssessmentInvitation({
           applicationId: item.application.id,
           candidateEmail: item.candidate.email,
           candidateName: `${item.candidate.first_name} ${item.candidate.last_name}`.trim(),
@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
     });
 
     // 7. Dispatch Round 2 Confirmation & Google Meet Link Email
-    const round2Email = emailDispatcher.sendRound2InterviewInvitation({
+    const round2Email = await emailDispatcher.sendRound2InterviewInvitation({
       applicationId: champion.application.id,
       candidateEmail: champion.candidate.email,
       candidateName: `${champion.candidate.first_name} ${champion.candidate.last_name}`.trim(),

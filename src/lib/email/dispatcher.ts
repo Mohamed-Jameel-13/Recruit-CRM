@@ -22,7 +22,7 @@ export const emailDispatcher = {
   /**
    * Dispatch Technical Assessment invitation email to candidate
    */
-  sendAssessmentInvitation(params: {
+  async sendAssessmentInvitation(params: {
     applicationId: string;
     candidateEmail: string;
     candidateName: string;
@@ -31,7 +31,7 @@ export const emailDispatcher = {
     dueDate?: string;
     passThreshold?: number;
     baseUrl?: string;
-  }): SentEmail {
+  }): Promise<SentEmail> {
     const {
       applicationId,
       candidateEmail,
@@ -128,7 +128,11 @@ export const emailDispatcher = {
       }
     });
 
-    dispatchRealSmtpEmail(candidateEmail, subject, bodyHtml);
+    try {
+      await dispatchRealSmtpEmail(candidateEmail, subject, bodyHtml);
+    } catch (e) {
+      console.warn('[emailDispatcher] Non-fatal SMTP error for assessment invitation:', e);
+    }
 
     return email;
   },
@@ -136,7 +140,7 @@ export const emailDispatcher = {
   /**
    * Dispatch Round 2 Technical Interview Invitation with Calendly / booking link
    */
-  sendRound2InterviewInvitation(params: {
+  async sendRound2InterviewInvitation(params: {
     applicationId: string;
     candidateEmail: string;
     candidateName: string;
@@ -147,7 +151,7 @@ export const emailDispatcher = {
     durationMinutes?: number;
     interviewerName?: string;
     calendlyUrl?: string;
-  }): SentEmail {
+  }): Promise<SentEmail> {
     const {
       applicationId,
       candidateEmail,
@@ -232,7 +236,11 @@ export const emailDispatcher = {
       }
     });
 
-    dispatchRealSmtpEmail(candidateEmail, subject, bodyHtml);
+    try {
+      await dispatchRealSmtpEmail(candidateEmail, subject, bodyHtml);
+    } catch (e) {
+      console.warn('[emailDispatcher] Non-fatal SMTP error for round 2 interview invitation:', e);
+    }
 
     return email;
   }

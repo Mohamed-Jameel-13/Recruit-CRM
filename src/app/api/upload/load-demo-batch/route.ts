@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
 
             if (assignment) {
               testUrl = assignment.assessment_url || `/assessment/take/${assignment.id}`;
-              emailDispatcher.sendAssessmentInvitation({
+              await emailDispatcher.sendAssessmentInvitation({
                 applicationId: application.id,
                 candidateEmail: candidate.email,
                 candidateName: `${firstName} ${lastName}`.trim(),

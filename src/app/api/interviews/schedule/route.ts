@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
       const candidateName = `${cleanFirstName} ${cleanLastName}`.trim() || 'Candidate';
 
       try {
-        emailDispatcher.sendRound2InterviewInvitation({
+        await emailDispatcher.sendRound2InterviewInvitation({
           applicationId: application.id,
           candidateEmail: candidate.email,
           candidateName,

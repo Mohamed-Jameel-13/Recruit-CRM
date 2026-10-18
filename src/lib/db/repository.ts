@@ -469,8 +469,11 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 const existingIdx = store.assessment_assignments.findIndex(x => x.id === a.id);
                 if (existingIdx === -1) {
                   store.assessment_assignments.push(a);
-                } else if (a.status === 'PASSED' || a.status === 'FAILED') {
-                  store.assessment_assignments[existingIdx] = a;
+                } else if (a.status === 'PASSED' || a.status === 'FAILED' || typeof a.percentage_score === 'number' || typeof a.score === 'number') {
+                  store.assessment_assignments[existingIdx] = {
+                    ...store.assessment_assignments[existingIdx],
+                    ...a
+                  };
                 }
               }
             }
@@ -488,10 +491,27 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
                 const existingIdx = store.applications.findIndex(x => x.id === app.id);
                 if (existingIdx === -1) {
                   store.applications.push(app);
-                } else if (app.stage === 'INTERVIEW' || app.stage === 'ASSESSMENT') {
-                  if (store.applications[existingIdx].stage === 'SCREENING') {
+                } else {
+                  if (typeof app.assessment_score === 'number') {
+                    store.applications[existingIdx].assessment_score = app.assessment_score;
+                  }
+                  if (app.assessment_status && app.assessment_status !== 'NOT_STARTED') {
+                    store.applications[existingIdx].assessment_status = app.assessment_status;
+                  }
+                  if (app.stage === 'INTERVIEW' || app.stage === 'OFFER' || app.stage === 'HIRED') {
+                    store.applications[existingIdx].stage = app.stage;
+                  } else if (app.stage === 'ASSESSMENT' && store.applications[existingIdx].stage === 'SCREENING') {
                     store.applications[existingIdx].stage = app.stage;
                   }
+                }
+              }
+            }
+            // Merge screening runs
+            if (Array.isArray(remoteStore.screening_runs)) {
+              if (!Array.isArray(store.screening_runs)) store.screening_runs = [];
+              for (const s of remoteStore.screening_runs) {
+                if (!store.screening_runs.some(x => x.id === s.id)) {
+                  store.screening_runs.push(s);
                 }
               }
             }
@@ -1539,6 +1559,7 @@ export const db = {
     const appIdx = store.applications.findIndex(a => a.id === appId);
     if (appIdx !== -1) {
       store.applications[appIdx].assessment_status = passed ? 'PASSED' : 'FAILED';
+      store.applications[appIdx].assessment_score = percentage;
       if (passed) {
         store.applications[appIdx].stage = 'INTERVIEW';
         store.applications[appIdx].interview_status = 'SCHEDULED';
@@ -1971,6 +1992,60 @@ export const db = {
     const candidatesAwaitingInterviewApproval = apps.filter(a => a.assessment_status === 'PASSED' && a.interview_status === 'AWAITING_APPROVAL').length;
     const interviewsScheduled = interviews.filter(i => i.booking_status === 'SCHEDULED' || i.booking_status === 'COMPLETED').length;
 
+    // Assessment Scores Analysis
+    const scoredAssignments = assessments.filter(a => typeof a.percentage_score === 'number' || typeof a.score === 'number');
+    const assessmentScores = scoredAssignments.map(a => typeof a.percentage_score === 'number' ? a.percentage_score : Number(a.score));
+    
+    const averageAssessmentScore = assessmentScores.length > 0
+      ? Number((assessmentScores.reduce((sum, s) => sum + s, 0) / assessmentScores.length).toFixed(1))
+      : 0;
+    const highestAssessmentScore = assessmentScores.length > 0
+      ? Math.max(...assessmentScores)
+      : 0;
+    const lowestAssessmentScore = assessmentScores.length > 0
+      ? Math.min(...assessmentScores)
+      : 0;
+
+    // AI Screening Scores Analysis
+    const screeningRuns = store.screening_runs || [];
+    const appIdsSet = new Set(apps.map(a => a.id));
+    const relevantScreenings = screeningRuns.filter(s => appIdsSet.has(s.application_id));
+    const averageScreeningScore = relevantScreenings.length > 0
+      ? Number((relevantScreenings.reduce((sum, s) => sum + s.match_score, 0) / relevantScreenings.length).toFixed(1))
+      : 0;
+
+    // Score distribution brackets
+    const scoreDistribution = {
+      excellent: assessmentScores.filter(s => s >= 85).length,
+      good: assessmentScores.filter(s => s >= 70 && s < 85).length,
+      borderline: assessmentScores.filter(s => s >= 50 && s < 70).length,
+      below: assessmentScores.filter(s => s < 50).length,
+    };
+
+    // Recent assessed candidates with actual verified scores
+    const recentSubmissions = scoredAssignments
+      .slice()
+      .reverse()
+      .slice(0, 10)
+      .map(a => {
+        const app = store.applications.find(ap => ap.id === a.application_id);
+        const cand = app ? store.candidates.find(c => c.id === app.candidate_id) : null;
+        const job = app ? store.jobs.find(j => j.id === app.job_id) : null;
+        const cleanName = `${cand?.first_name || ''} ${cand?.last_name || ''}`.trim() || 'Candidate';
+        const finalScore = typeof a.percentage_score === 'number' ? a.percentage_score : (a.score || 0);
+        return {
+          id: a.id,
+          candidateName: cleanName,
+          candidateEmail: cand?.email || '',
+          jobTitle: job?.title || 'Engineer',
+          score: finalScore,
+          status: a.status,
+          passThreshold: a.pass_threshold_percentage || 70,
+          passed: finalScore >= (a.pass_threshold_percentage || 70),
+          submittedAt: a.verified_at || a.updated_at || a.created_at
+        };
+      });
+
     // Recruitment funnel counts
     const funnel = [
       { stage: 'Uploaded CVs', count: totalCVsUploaded },
@@ -1991,6 +2066,12 @@ export const db = {
       assessmentSubmissions,
       resultsAwaitingVerification,
       assessmentPassRate,
+      averageAssessmentScore,
+      highestAssessmentScore,
+      lowestAssessmentScore,
+      averageScreeningScore,
+      scoreDistribution,
+      recentSubmissions,
       candidatesAwaitingInterviewApproval,
       interviewsScheduled,
       funnel

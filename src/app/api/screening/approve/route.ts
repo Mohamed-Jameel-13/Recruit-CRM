@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     let emailSent = null;
     if (candidate && assignment) {
-      emailSent = emailDispatcher.sendAssessmentInvitation({
+      emailSent = await emailDispatcher.sendAssessmentInvitation({
         applicationId,
         candidateEmail: candidate.email,
         candidateName: `${candidate.first_name} ${candidate.last_name}`.trim(),
