@@ -9,6 +9,9 @@ export const metadata: Metadata = {
   description: 'AI-assisted HR recruitment platform with universal LLM integration, semantic matching, and automated pipelines.',
 };
 
+import { PipelineProvider } from '@/components/pipeline/PipelineProvider';
+import { GlobalPipelineStatusBar } from '@/components/pipeline/GlobalPipelineStatusBar';
+
 export default function RootLayout({
   children,
 }: {
@@ -19,9 +22,12 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-[var(--bg-page)] text-[var(--text-primary)] antialiased">
         <ThemeProvider>
           <ToastProvider>
-            <AppLayout>
-              {children}
-            </AppLayout>
+            <PipelineProvider>
+              <AppLayout>
+                {children}
+              </AppLayout>
+              <GlobalPipelineStatusBar />
+            </PipelineProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>

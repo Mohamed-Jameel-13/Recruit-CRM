@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdf-parse", "mammoth"],
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "mammoth"],
   allowedDevOrigins: [
     "localhost:3000",
     "127.0.0.1:3000",

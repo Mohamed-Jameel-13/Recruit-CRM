@@ -21,11 +21,16 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     fetchJobs();
-    fetchAnalytics('all');
+    fetchAnalytics(selectedJobId);
     const timer = setInterval(() => {
       fetchAnalytics(selectedJobId);
     }, 6000);
-    return () => clearInterval(timer);
+    const handleUpdate = () => fetchAnalytics(selectedJobId);
+    window.addEventListener('recruitcrm:data_updated', handleUpdate);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('recruitcrm:data_updated', handleUpdate);
+    };
   }, [selectedJobId]);
 
   async function fetchJobs() {

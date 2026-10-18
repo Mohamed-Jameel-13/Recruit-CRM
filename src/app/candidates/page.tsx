@@ -29,6 +29,9 @@ export default function CandidatesPage() {
 
   useEffect(() => {
     fetchCandidates();
+    const handleUpdate = () => fetchCandidates();
+    window.addEventListener('recruitcrm:data_updated', handleUpdate);
+    return () => window.removeEventListener('recruitcrm:data_updated', handleUpdate);
   }, []);
 
   async function fetchCandidates() {

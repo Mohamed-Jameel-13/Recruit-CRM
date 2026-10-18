@@ -11,6 +11,156 @@ export interface ExtractedCandidateData {
   education?: string[];
 }
 
+function isBinaryStreamOrGarbage(text: string): boolean {
+  if (!text || text.trim().length < 25) return true;
+
+  // Check for PDF stream or object header leakage
+  if (
+    text.includes('%PDF-') ||
+    text.includes('/FlateDecode') ||
+    text.includes('/Filter') ||
+    text.includes('endstream') ||
+    text.includes('endobj')
+  ) {
+    const stripped = text
+      .replace(/%PDF-[\d.]+/g, '')
+      .replace(/\d+\s+\d+\s+obj[\s\S]*?endobj/g, '')
+      .replace(/stream[\s\S]*?endstream/g, '')
+      .replace(/<<[\s\S]*?>>/g, '')
+      .replace(/xref[\s\S]*?%%EOF/g, '')
+      .trim();
+    if (stripped.length < 50) return true;
+  }
+
+  // Check for DOCX zip binary leakage
+  if (
+    text.startsWith('PK\x03\x04') ||
+    text.includes('[Content_Types].xml') ||
+    text.includes('word/document.xml')
+  ) {
+    return true;
+  }
+
+  // Check ratio of readable alphanumeric characters vs binary symbols
+  const alphanumericCount = (text.match(/[a-zA-Z0-9]/g) || []).length;
+  const ratio = alphanumericCount / text.length;
+  if (ratio < 0.25) return true;
+
+  // Check for at least some recognizable words
+  const words = text.split(/\s+/).filter(w => w.length >= 3 && /^[a-zA-Z]+$/.test(w));
+  if (words.length < 5) return true;
+
+  return false;
+}
+
+async function extractTextFromPdf(fileBuffer: Buffer, fileName: string): Promise<string> {
+  // Strategy 1: pdfjs-dist legacy Node.js build (robust, handles encodings & CMaps without canvas)
+  try {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(fileBuffer),
+      useSystemFonts: true,
+      disableFontFace: true,
+      isEvalSupported: false,
+      useWorkerFetch: false,
+    });
+    const doc = await loadingTask.promise;
+    let fullText = '';
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = (content.items || [])
+        .map((item: any) => ('str' in item ? item.str : ''))
+        .filter(Boolean)
+        .join(' ');
+      if (pageText.trim()) {
+        fullText += pageText + '\n\n';
+      }
+    }
+    if (fullText.trim().length >= 30 && !isBinaryStreamOrGarbage(fullText)) {
+      return fullText.trim();
+    }
+  } catch (pdfjsErr) {
+    console.warn(`PDF.js legacy parse notice for "${fileName}":`, pdfjsErr instanceof Error ? pdfjsErr.message : String(pdfjsErr));
+  }
+
+  // Strategy 2: pdf-parse v2 PDFParse class
+  try {
+    const pdfModule = await import('pdf-parse');
+    const PDFParseClass = (pdfModule as any).PDFParse || (pdfModule as any).default;
+    if (typeof PDFParseClass === 'function') {
+      const parser = new PDFParseClass({ data: new Uint8Array(fileBuffer) });
+      const result = await parser.getText();
+      await parser.destroy();
+      const text = result?.text || '';
+      if (text.trim().length >= 30 && !isBinaryStreamOrGarbage(text)) {
+        return text.trim();
+      }
+    }
+  } catch (pdfParseErr) {
+    console.warn(`pdf-parse notice for "${fileName}":`, pdfParseErr instanceof Error ? pdfParseErr.message : String(pdfParseErr));
+  }
+
+  // Strategy 3: Direct zlib FlateDecode stream extractor for PDFs with uncompressed/compressed text streams
+  try {
+    const zlib = await import('zlib');
+    const rawBinary = fileBuffer.toString('binary');
+    const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+    let match: RegExpExecArray | null;
+    let fallbackText = '';
+    while ((match = streamRegex.exec(rawBinary)) !== null) {
+      const streamBytes = Buffer.from(match[1], 'binary');
+      let decompressed: string | null = null;
+      try {
+        decompressed = zlib.inflateSync(streamBytes).toString('utf-8');
+      } catch {
+        try {
+          decompressed = zlib.inflateRawSync(streamBytes).toString('utf-8');
+        } catch {}
+      }
+      const block = decompressed || match[1];
+      const tjRegex = /\(([^)]+)\)\s*Tj/g;
+      let tjMatch: RegExpExecArray | null;
+      while ((tjMatch = tjRegex.exec(block)) !== null) {
+        fallbackText += tjMatch[1] + ' ';
+      }
+      const tjArrayRegex = /\[([^\]]+)\]\s*TJ/g;
+      let tjaMatch: RegExpExecArray | null;
+      while ((tjaMatch = tjArrayRegex.exec(block)) !== null) {
+        const parts = tjaMatch[1].match(/\(([^)]*)\)/g) || [];
+        for (const p of parts) {
+          fallbackText += p.slice(1, -1) + ' ';
+        }
+      }
+    }
+    if (fallbackText.trim().length >= 30 && !isBinaryStreamOrGarbage(fallbackText)) {
+      return fallbackText.trim();
+    }
+  } catch {}
+
+  throw new Error(
+    `The PDF "${fileName}" does not contain extractable text. It may be a scanned image or binary-encoded document without a readable text layer. Please upload a text-based PDF or DOCX file.`
+  );
+}
+
+async function extractTextFromDocx(fileBuffer: Buffer, fileName: string): Promise<string> {
+  try {
+    const mammothModule = await import('mammoth');
+    const mammoth = (mammothModule as any).default || mammothModule;
+    const result = await mammoth.extractRawText({ buffer: fileBuffer });
+    const text = result?.value || '';
+    if (text.trim().length >= 20 && !isBinaryStreamOrGarbage(text)) {
+      return text.trim();
+    }
+  } catch (docxErr) {
+    console.warn(`DOCX parse error for "${fileName}":`, docxErr instanceof Error ? docxErr.message : String(docxErr));
+  }
+
+  throw new Error(
+    `Unable to extract readable text from DOCX file "${fileName}". Please ensure the file is not password-protected or corrupted.`
+  );
+}
+
 export async function extractResumeData(
   fileBuffer: Buffer,
   fileName: string,
@@ -20,48 +170,30 @@ export async function extractResumeData(
 
   const lowerName = fileName.toLowerCase();
   const isPdf = mimeType.includes('pdf') || lowerName.endsWith('.pdf');
-  const isDocx = mimeType.includes('word') || lowerName.endsWith('.docx') || mimeType.includes('document');
+  const isDocx =
+    mimeType.includes('word') ||
+    lowerName.endsWith('.docx') ||
+    lowerName.endsWith('.doc') ||
+    mimeType.includes('document');
 
   if (isPdf) {
-    try {
-      const pdfModule = await import('pdf-parse');
-      const PDFParseClass = (pdfModule as any).PDFParse || (pdfModule as any).default || pdfModule;
-      if (typeof PDFParseClass === 'function') {
-        try {
-          const parser = new PDFParseClass({ data: fileBuffer });
-          const result = await parser.getText();
-          rawText = result.text || '';
-        } catch {
-          const result = await (PDFParseClass as any)(fileBuffer);
-          rawText = result.text || '';
-        }
-      } else {
-        rawText = fileBuffer.toString('utf-8');
-      }
-    } catch (err: unknown) {
-      console.warn(`PDF parse warning for "${fileName}":`, err instanceof Error ? err.message : String(err));
-      rawText = fileBuffer.toString('utf-8').replace(/[^\x20-\x7E\r\n\t]/g, ' ');
-    }
+    rawText = await extractTextFromPdf(fileBuffer, fileName);
   } else if (isDocx) {
-    try {
-      const mammothModule = await import('mammoth');
-      const mammothObj = (mammothModule as any).default || mammothModule;
-      const result = await mammothObj.extractRawText({ buffer: fileBuffer });
-      rawText = result.value;
-    } catch (err: unknown) {
-      console.warn(`DOCX parse warning for "${fileName}":`, err instanceof Error ? err.message : String(err));
-      rawText = fileBuffer.toString('utf-8').replace(/[^\x20-\x7E\r\n\t]/g, ' ');
-    }
+    rawText = await extractTextFromDocx(fileBuffer, fileName);
   } else {
-    // Attempt plain text fallback
+    // Plain text / RTF / Markdown
     rawText = fileBuffer.toString('utf-8');
-    if (!rawText || rawText.trim().length === 0) {
-      throw new Error(`Unsupported file type or empty file: ${fileName} (${mimeType})`);
+    if (isBinaryStreamOrGarbage(rawText)) {
+      throw new Error(
+        `The file "${fileName}" does not contain legible candidate text. Please upload a text-based PDF, DOCX, or TXT file.`
+      );
     }
   }
 
-  if (!rawText || rawText.trim().length < 20) {
-    throw new Error(`The resume file "${fileName}" does not contain sufficient legible text.`);
+  if (!rawText || rawText.trim().length < 20 || isBinaryStreamOrGarbage(rawText)) {
+    throw new Error(
+      `The resume file "${fileName}" does not contain sufficient legible text to evaluate. Please provide a text-based document.`
+    );
   }
 
   return extractMetadataFromText(rawText, fileName);
