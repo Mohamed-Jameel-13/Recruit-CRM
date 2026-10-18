@@ -735,8 +735,9 @@ export async function callUniversalLLM(
       signal: controller.signal,
     });
 
-    // If 400 occurred and response_format was specified, retry once without response_format
-    if (!res.ok && res.status === 400 && payload.response_format) {
+    // If request failed and response_format was specified, retry once without response_format
+    if (!res.ok && payload.response_format) {
+      console.warn(`[AI Call] Endpoint returned ${res.status} with response_format. Retrying standard format...`);
       delete payload.response_format;
       res = await fetch(endpoint, {
         method: 'POST',
@@ -768,9 +769,9 @@ export async function callUniversalLLM(
     clearTimeout(timeoutId);
     let content = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || '';
     
-    // Fallback for reasoning models like DeepSeek R1 if content is in reasoning_content
-    if (!content && data.choices?.[0]?.message?.reasoning_content) {
-      content = data.choices[0].message.reasoning_content;
+    // Fallback for reasoning models like DeepSeek R1/v4 or delta streams
+    if (!content) {
+      content = data.choices?.[0]?.message?.reasoning_content || data.choices?.[0]?.delta?.content || '';
     }
 
     const latencyMs = Date.now() - startTime;

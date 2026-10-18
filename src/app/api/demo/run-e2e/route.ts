@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -7,7 +7,7 @@ import { extractResumeData } from '@/lib/extractor/parser';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
 import { emailDispatcher } from '@/lib/email/dispatcher';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
     const demoDir = path.resolve(process.cwd(), 'demo_cvs');
     if (!fs.existsSync(demoDir)) {
@@ -22,6 +22,13 @@ export async function POST() {
     const job = db.getJobs()[0];
     if (!job) {
       return NextResponse.json({ error: 'Baseline job missing' }, { status: 500 });
+    }
+
+    // Extract client-forwarded LLM configuration if sent from UI
+    let clientLlmConfig: any = null;
+    const headerConfig = req.headers.get('x-llm-config');
+    if (headerConfig) {
+      try { clientLlmConfig = JSON.parse(headerConfig); } catch {}
     }
 
     const batch = db.createBatch(`Client Demo Pipeline: ${job.title}`, job.id, files.length);
@@ -100,7 +107,8 @@ export async function POST() {
             extracted.yearsExperience || 4,
             criteria,
             job.title,
-            job.description
+            job.description,
+            clientLlmConfig
           );
 
           score = screeningOutcome.screeningResult.matchScore;

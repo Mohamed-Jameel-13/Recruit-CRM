@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -8,7 +8,7 @@ import { screenCandidateWithAI } from '@/lib/screening/engine';
 import { emailDispatcher } from '@/lib/email/dispatcher';
 import { ScreeningRecommendation } from '@/types/database';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
     const demoDir = path.resolve(process.cwd(), 'demo_cvs');
     if (!fs.existsSync(demoDir)) {
@@ -28,6 +28,13 @@ export async function POST() {
     const job = db.getJobs()[0];
     if (!job) {
       return NextResponse.json({ error: 'No baseline job found to associate with demo batch' }, { status: 404 });
+    }
+
+    // Extract client-forwarded LLM configuration if sent from UI
+    let clientLlmConfig: any = null;
+    const headerConfig = req.headers.get('x-llm-config');
+    if (headerConfig) {
+      try { clientLlmConfig = JSON.parse(headerConfig); } catch {}
     }
 
     const batch = db.createBatch(`Demo Batch: ${job.title}`, job.id, files.length);
@@ -100,7 +107,8 @@ export async function POST() {
             extracted.yearsExperience || 4,
             criteria,
             job.title,
-            job.description
+            job.description,
+            clientLlmConfig
           );
 
           matchScore = screeningOutcome.screeningResult.matchScore;

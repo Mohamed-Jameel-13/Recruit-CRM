@@ -319,6 +319,7 @@ export default function SettingsPage() {
         localStorage.setItem('recruitai_llm_config', JSON.stringify({
           provider,
           baseUrl,
+          apiKey: apiKey.trim() || undefined,
           model,
           temperature,
           maxTokens,

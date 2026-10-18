@@ -106,6 +106,18 @@ export default function IntegrationsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save');
+
+      try {
+        localStorage.setItem('recruitai_llm_config', JSON.stringify({
+          provider,
+          baseUrl,
+          apiKey: apiKey.trim() || undefined,
+          model,
+          temperature: parseFloat(temperature) || 0.1,
+          maxTokens: 4096
+        }));
+      } catch {}
+
       toast.success(`LLM configuration saved. Provider: ${provider}, Model: ${model}`, 'Configuration Saved');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : String(err), 'Configuration Error');

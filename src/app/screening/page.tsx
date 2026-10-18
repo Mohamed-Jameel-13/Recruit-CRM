@@ -176,9 +176,19 @@ export default function ScreeningReviewPage() {
     setEvaluatingId(appId);
     setActionLoading(true);
     try {
+      let storedConfig = '';
+      try {
+        storedConfig = localStorage.getItem('recruitai_llm_config') || '';
+      } catch {}
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (storedConfig) {
+        headers['x-llm-config'] = storedConfig;
+      }
+
       const res = await fetch('/api/screening/evaluate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ applicationId: appId })
       });
       const data = await res.json();

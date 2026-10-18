@@ -31,13 +31,22 @@ export async function POST(req: NextRequest) {
     const skills = cvDoc?.parsed_json?.skills?.length ? cvDoc.parsed_json.skills : ['TypeScript', 'Node.js', 'PostgreSQL', 'Docker'];
     const experience = cvDoc?.parsed_json?.years_experience || 4;
 
+    let clientLlmConfig = body.llmConfig;
+    if (!clientLlmConfig) {
+      const headerConfig = req.headers.get('x-llm-config');
+      if (headerConfig) {
+        try { clientLlmConfig = JSON.parse(headerConfig); } catch {}
+      }
+    }
+
     const screeningOutcome = await screenCandidateWithAI(
       text,
       skills,
       experience,
       criteria,
       job.title,
-      job.description
+      job.description,
+      clientLlmConfig
     );
 
     const run = db.recordScreeningRun({

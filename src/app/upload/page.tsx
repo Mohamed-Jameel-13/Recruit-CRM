@@ -432,12 +432,28 @@ export default function UploadPage() {
         );
         formData.append('files', file);
 
+        // Forward active UI LLM config so serverless container uses the exact configured AI
+        let activeLlmConfigJson = '';
+        try {
+          const stored = localStorage.getItem('recruitai_llm_config');
+          if (stored) {
+            activeLlmConfigJson = stored;
+            formData.append('llmConfig', stored);
+          }
+        } catch {}
+
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 45000);
+          const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+          const upHeaders: Record<string, string> = {};
+          if (activeLlmConfigJson) {
+            upHeaders['x-llm-config'] = activeLlmConfigJson;
+          }
 
           const upRes = await fetch('/api/upload', {
             method: 'POST',
+            headers: upHeaders,
             body: formData,
             signal: controller.signal,
           });

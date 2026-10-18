@@ -47,6 +47,16 @@ export async function POST(req: NextRequest) {
     const batchName = (formData.get('batchName') as string) || `Batch_${new Date().toISOString().substring(0, 10)}`;
     const files = formData.getAll('files') as File[];
 
+    // Extract client-forwarded LLM configuration if sent from UI
+    let clientLlmConfig: any = null;
+    const headerConfig = req.headers.get('x-llm-config');
+    const formConfig = formData.get('llmConfig') as string;
+    if (headerConfig) {
+      try { clientLlmConfig = JSON.parse(headerConfig); } catch {}
+    } else if (formConfig) {
+      try { clientLlmConfig = JSON.parse(formConfig); } catch {}
+    }
+
     if (!files || files.length === 0) {
       return NextResponse.json({ error: 'No files provided for upload.' }, { status: 400 });
     }
@@ -221,7 +231,8 @@ export async function POST(req: NextRequest) {
             extracted.yearsExperience || 3,
             job.criteria,
             job.title,
-            job.description
+            job.description,
+            clientLlmConfig
           );
 
           matchScore = screeningOutcome.screeningResult.matchScore;
