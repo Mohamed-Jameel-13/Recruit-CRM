@@ -46,6 +46,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     }
 
+    // Strict Single Attempt Policy: Prevent candidate retakes & duplicate submissions
+    const isAlreadySubmitted = 
+      assignment.status === 'PASSED' || 
+      assignment.status === 'FAILED' || 
+      assignment.status === 'RESULT_RECEIVED' ||
+      Boolean(assignment.verified) ||
+      application.assessment_status === 'PASSED' ||
+      application.assessment_status === 'FAILED' ||
+      application.stage === 'INTERVIEW' ||
+      application.stage === 'OFFER' ||
+      application.stage === 'HIRED' ||
+      application.stage === 'REJECTED';
+
+    const isRecruiterSimulation = rawOverrideScore !== undefined && typeof rawOverrideScore === 'number';
+
+    if (!isRecruiterSimulation && isAlreadySubmitted) {
+      return NextResponse.json({
+        success: true,
+        alreadySubmitted: true,
+        referenceId: 'REF-' + (assignment.id.replace(/[^0-9a-zA-Z]/g, '').slice(-8).toUpperCase() || '2026'),
+        submittedAt: assignment.verified_at || assignment.updated_at || new Date().toISOString(),
+        message: 'This technical assessment has already been completed and submitted. Multiple attempts are not permitted.'
+      });
+    }
+
     const candidate = application.candidate;
     // Update candidate email if valid personal contact email provided
     if (candidate && candidateEmail && typeof candidateEmail === 'string') {
@@ -256,7 +281,6 @@ Respond ONLY with valid JSON:
     let finalPercentage = Number(((totalEarned / totalPossible) * 100).toFixed(1));
 
     // Support override if explicitly provided (e.g. recruiter simulator)
-    const isRecruiterSimulation = rawOverrideScore !== undefined && typeof rawOverrideScore === 'number';
     if (isRecruiterSimulation) {
       finalPercentage = rawOverrideScore;
     }

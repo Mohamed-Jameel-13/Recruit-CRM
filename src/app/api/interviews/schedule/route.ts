@@ -4,6 +4,7 @@ import { emailDispatcher } from '@/lib/email/dispatcher';
 
 export async function POST(req: NextRequest) {
   try {
+    await db.ensureHydrated(true);
     const body = await req.json();
     const { 
       applicationId, 
@@ -77,6 +78,10 @@ export async function POST(req: NextRequest) {
         console.warn('Non-fatal interview email dispatch warning:', emailErr);
       }
     }
+
+    try {
+      await db.persistStoreAsync();
+    } catch {}
 
     return NextResponse.json({ 
       success: true, 

@@ -49,7 +49,17 @@ export default async function TakeAssessmentPage({ params }: PageProps) {
   const { assignment, candidate, job } = session;
   const rawConfig = db.getAssessmentConfig(assignment.config_id || job?.assessment_config_id || job?.title);
 
-  const isSubmitted = assignment.status === 'PASSED' || assignment.status === 'FAILED';
+  const isSubmitted = 
+    assignment.status === 'PASSED' || 
+    assignment.status === 'FAILED' || 
+    assignment.status === 'RESULT_RECEIVED' ||
+    Boolean(assignment.verified) ||
+    session.application?.assessment_status === 'PASSED' ||
+    session.application?.assessment_status === 'FAILED' ||
+    session.application?.stage === 'INTERVIEW' ||
+    session.application?.stage === 'OFFER' ||
+    session.application?.stage === 'HIRED' ||
+    session.application?.stage === 'REJECTED';
 
   const initialData = {
     assessment: {

@@ -66,6 +66,19 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
 
   const [stage, setStage] = useState<AssessmentStage>(initialCompleted ? 'COMPLETED' : 'INSTRUCTIONS');
 
+  // Client-side single attempt enforcement: check localStorage
+  useEffect(() => {
+    try {
+      const targetId = assignmentId || initialData.assessment?.id;
+      const isLocallySubmitted = 
+        (targetId && localStorage.getItem(`recruitcrm_submitted_${targetId}`)) ||
+        (candidate?.email && localStorage.getItem(`recruitcrm_submitted_email_${candidate.email.toLowerCase()}`));
+      if (isLocallySubmitted && stage !== 'COMPLETED') {
+        setStage('COMPLETED');
+      }
+    } catch {}
+  }, [assignmentId, initialData.assessment?.id, candidate?.email, stage]);
+
   // Answer state keyed by question ID
   const [answers, setAnswers] = useState<Record<string, any>>(() => {
     const initial: Record<string, any> = {};
@@ -153,6 +166,16 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
 
       setStage('COMPLETED');
       setTimerRunning(false);
+
+      try {
+        const targetId = assignmentId || assessmentData?.assessment?.id;
+        if (targetId) {
+          localStorage.setItem(`recruitcrm_submitted_${targetId}`, new Date().toISOString());
+        }
+        if (candidate?.email) {
+          localStorage.setItem(`recruitcrm_submitted_email_${candidate.email.toLowerCase()}`, new Date().toISOString());
+        }
+      } catch {}
 
       toast.success(
         'Thank you! Your assessment has been submitted successfully.',
@@ -797,13 +820,21 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
             </div>
 
             <div className="space-y-1.5">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold mb-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Assessment Submitted &amp; Locked</span>
+              </div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-                Thank You, {candidate?.first_name || 'Candidate'}!
+                Thank You, {cleanFirstName}!
               </h1>
               <p className="text-base text-slate-600 font-medium">
                 Your technical assessment has been successfully submitted.
               </p>
-              <p className="text-xs text-slate-500 leading-relaxed pt-1">
+              <div className="mt-3 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-start gap-2.5">
+                <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+                <span><strong>Single Attempt Policy Enforced:</strong> This assessment has been completed. Retakes and duplicate submissions are not permitted.</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed pt-2">
                 We have received your responses for the <strong>{job?.title || 'Engineering'}</strong> position. Our engineering recruitment team will review your submission and contact you regarding the next steps.
               </p>
             </div>

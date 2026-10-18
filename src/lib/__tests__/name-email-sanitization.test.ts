@@ -77,4 +77,58 @@ describe('Candidate Name & Contact Email Sanitization Suite', () => {
       expect(interviewEmail?.body_html).not.toContain('40');
     }
   });
+
+  it('should auto-recover assessment session when token is queried even if not previously in assignment list', () => {
+    const candidateEmail = 'token_recovery_test@domain.com';
+    const { application } = db.createApplicationWithCandidate({
+      jobId: db.getJobs()[0].id,
+      firstName: 'Elena',
+      lastName: 'Rostova',
+      email: candidateEmail
+    });
+
+    const nowTs = Date.now();
+    const token = `assess-${nowTs}`;
+
+    // Query an unassigned assess token with timestamp matching the recent application
+    const session = db.getOrCreateAssessmentById(token);
+    expect(session).toBeDefined();
+    expect(session?.assignment).toBeDefined();
+    expect(session?.assignment.id).toBe(token);
+    expect(session?.candidate?.email).toBe(candidateEmail);
+  });
+
+  it('should identify terminal states to prevent re-attempts for completed assessments', () => {
+    const candidateEmail = 'retake_guard_test@domain.com';
+    const { application } = db.createApplicationWithCandidate({
+      jobId: db.getJobs()[0].id,
+      firstName: 'Carlos',
+      lastName: 'Gomez',
+      email: candidateEmail
+    });
+
+    db.approveForAssessment(application.id, 'Unit Test');
+    const assignment = db.getAssessmentByApplicationId(application.id);
+    expect(assignment).toBeDefined();
+
+    if (assignment) {
+      // First attempt passes
+      db.saveAssessmentResult(assignment.id, {
+        score: 90,
+        source: 'First Attempt',
+        candidateEmail
+      });
+
+      const session = db.getOrCreateAssessmentById(assignment.id);
+      expect(session?.assignment.status).toBe('PASSED');
+      expect(session?.assignment.verified).toBe(true);
+      
+      const isCompleted = 
+        session?.assignment.status === 'PASSED' || 
+        session?.assignment.status === 'FAILED' || 
+        Boolean(session?.assignment.verified);
+      expect(isCompleted).toBe(true);
+    }
+  });
 });
+

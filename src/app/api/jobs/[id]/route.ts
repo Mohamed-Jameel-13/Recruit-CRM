@@ -6,6 +6,7 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await db.ensureHydrated(true);
   const { id } = await params;
   const job = db.getJobById(id);
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
@@ -17,6 +18,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await db.ensureHydrated(true);
     const { id } = await params;
     const body = await req.json();
 
@@ -102,6 +104,10 @@ export async function PATCH(
         ? criteriaUpdates as Parameters<typeof db.updateJob>[2]
         : undefined
     );
+
+    try {
+      await db.persistStoreAsync();
+    } catch {}
 
     return NextResponse.json({ success: true, job: updated });
   } catch (err: unknown) {

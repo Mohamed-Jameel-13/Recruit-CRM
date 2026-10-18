@@ -454,6 +454,68 @@ export async function syncStoreToSupabase(store: RecruitmentStore): Promise<bool
   try {
     const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     await ensureDbStorageBucket(supabase);
+
+    // Merge remote state to prevent cross-container overwrites in serverless
+    try {
+      const { data: remoteData } = await supabase.storage.from('system_config').download('recruitment_store.json');
+      if (remoteData) {
+        const remoteText = await remoteData.text();
+        if (remoteText && remoteText.trim()) {
+          const remoteStore = JSON.parse(remoteText);
+          if (remoteStore && Array.isArray(remoteStore.jobs)) {
+            // Merge assignments
+            if (Array.isArray(remoteStore.assessment_assignments)) {
+              for (const a of remoteStore.assessment_assignments) {
+                const existingIdx = store.assessment_assignments.findIndex(x => x.id === a.id);
+                if (existingIdx === -1) {
+                  store.assessment_assignments.push(a);
+                } else if (a.status === 'PASSED' || a.status === 'FAILED') {
+                  store.assessment_assignments[existingIdx] = a;
+                }
+              }
+            }
+            // Merge candidates
+            if (Array.isArray(remoteStore.candidates)) {
+              for (const c of remoteStore.candidates) {
+                if (!store.candidates.some(x => x.id === c.id)) {
+                  store.candidates.push(c);
+                }
+              }
+            }
+            // Merge applications
+            if (Array.isArray(remoteStore.applications)) {
+              for (const app of remoteStore.applications) {
+                const existingIdx = store.applications.findIndex(x => x.id === app.id);
+                if (existingIdx === -1) {
+                  store.applications.push(app);
+                } else if (app.stage === 'INTERVIEW' || app.stage === 'ASSESSMENT') {
+                  if (store.applications[existingIdx].stage === 'SCREENING') {
+                    store.applications[existingIdx].stage = app.stage;
+                  }
+                }
+              }
+            }
+            // Merge sent emails
+            if (Array.isArray(remoteStore.sent_emails)) {
+              for (const e of remoteStore.sent_emails) {
+                if (!store.sent_emails.some(x => x.id === e.id)) {
+                  store.sent_emails.push(e);
+                }
+              }
+            }
+            // Merge interviews
+            if (Array.isArray(remoteStore.interviews)) {
+              for (const i of remoteStore.interviews) {
+                if (!store.interviews.some(x => x.id === i.id)) {
+                  store.interviews.push(i);
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+
     const { error } = await supabase.storage.from('system_config').upload('recruitment_store.json', JSON.stringify(store, null, 2), {
       contentType: 'application/json',
       upsert: true
@@ -1134,6 +1196,115 @@ export const db = {
       assignment = store.assessment_assignments.find(
         a => a.assessment_url && a.assessment_url.includes(cleanId)
       ) || null;
+    }
+
+    if (!assignment && cleanId.length >= 8) {
+      // 3. Sent Email Token Recovery: match invitation email sent to candidate
+      const emailWithLink = store.sent_emails?.find(
+        e => {
+          const meta = e.metadata as Record<string, any> | undefined;
+          const testUrl = typeof meta?.testUrl === 'string' ? meta.testUrl : '';
+          return (testUrl && testUrl.includes(cleanId)) ||
+                 (e.body_html && e.body_html.includes(cleanId));
+        }
+      );
+      const emailMeta = emailWithLink?.metadata as Record<string, any> | undefined;
+      if (emailMeta?.applicationId) {
+        const app = store.applications.find(a => a.id === emailMeta.applicationId);
+        if (app) {
+          const appJob = store.jobs.find(j => j.id === app.job_id) || store.jobs[0] || DEFAULT_JOB;
+          assignment = {
+            id: cleanId,
+            application_id: app.id,
+            config_id: appJob.assessment_config_id || 'cfg-fullstack',
+            assessment_type: 'EXTERNAL_URL',
+            assessment_url: `/assessment/take/${cleanId}`,
+            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            pass_threshold_percentage: typeof emailMeta.passThreshold === 'number' ? emailMeta.passThreshold : 70,
+            status: 'SENT',
+            verified: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          store.assessment_assignments.push(assignment);
+          if (app.stage === 'SCREENING') app.stage = 'ASSESSMENT';
+          saveStore(store);
+        }
+      }
+    }
+
+    if (!assignment && cleanId.startsWith('assess-')) {
+      // 4. Token timestamp auto-recovery: match application created within 10 minutes of this token
+      const tokenTs = parseInt(cleanId.replace(/^assess-/, ''), 10);
+      if (!isNaN(tokenTs) && tokenTs > 1700000000000) {
+        let bestApp: Application | null = null;
+        let minDiff = 600000;
+        for (const a of store.applications) {
+          const appCreatedTs = new Date(a.created_at).getTime();
+          let appTs = !isNaN(appCreatedTs) ? appCreatedTs : 0;
+          const appIdDigits = a.id.replace(/[^0-9]/g, '');
+          if (appIdDigits.length >= 13) {
+            const parsedTs = parseInt(appIdDigits.substring(0, 13), 10);
+            if (!isNaN(parsedTs)) appTs = parsedTs;
+          }
+          if (appTs > 0) {
+            const diff = Math.abs(appTs - tokenTs);
+            if (diff < minDiff) {
+              minDiff = diff;
+              bestApp = a;
+            }
+          }
+        }
+        const nearbyApp = bestApp;
+
+        if (nearbyApp) {
+          const appJob = store.jobs.find(j => j.id === nearbyApp.job_id) || store.jobs[0] || DEFAULT_JOB;
+          assignment = {
+            id: cleanId,
+            application_id: nearbyApp.id,
+            config_id: appJob.assessment_config_id || 'cfg-fullstack',
+            assessment_type: 'EXTERNAL_URL',
+            assessment_url: `/assessment/take/${cleanId}`,
+            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            pass_threshold_percentage: 70,
+            status: 'SENT',
+            verified: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          store.assessment_assignments.push(assignment);
+          if (nearbyApp.stage === 'SCREENING') nearbyApp.stage = 'ASSESSMENT';
+          saveStore(store);
+        }
+      }
+    }
+
+    if (!assignment && cleanId.startsWith('assess-')) {
+      // 5. Active Shortlisted Application Recovery
+      const eligibleApp = store.applications
+        .slice()
+        .reverse()
+        .find(a => a.stage === 'ASSESSMENT' || a.screening_status === 'COMPLETED');
+
+      if (eligibleApp) {
+        const appJob = store.jobs.find(j => j.id === eligibleApp.job_id) || store.jobs[0] || DEFAULT_JOB;
+        assignment = {
+          id: cleanId,
+          application_id: eligibleApp.id,
+          config_id: appJob.assessment_config_id || 'cfg-fullstack',
+          assessment_type: 'EXTERNAL_URL',
+          assessment_url: `/assessment/take/${cleanId}`,
+          due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          pass_threshold_percentage: 70,
+          status: 'SENT',
+          verified: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        store.assessment_assignments.push(assignment);
+        if (eligibleApp.stage === 'SCREENING') eligibleApp.stage = 'ASSESSMENT';
+        saveStore(store);
+      }
     }
 
     if (!assignment) return null;
