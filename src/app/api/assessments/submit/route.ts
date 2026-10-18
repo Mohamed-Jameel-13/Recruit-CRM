@@ -11,16 +11,26 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { 
       assignmentId, 
+      assessmentId,
+      id: rawId,
       score: rawOverrideScore, 
       answers = {}, 
       candidateEmail 
     } = body;
 
-    let assignment = assignmentId ? db.getAssessmentById(assignmentId) : null;
+    const targetId = assignmentId || assessmentId || rawId;
+    let assignment = targetId ? db.getAssessmentById(targetId) : null;
+
+    if (!assignment && targetId) {
+      const session = db.getOrCreateAssessmentById(targetId);
+      if (session) {
+        assignment = session.assignment;
+      }
+    }
 
     if (!assignment && candidateEmail) {
       const app = db.getApplications().find(
-        a => a.candidate?.email.toLowerCase() === candidateEmail.toLowerCase()
+        a => a.candidate?.email?.toLowerCase() === candidateEmail.toLowerCase()
       );
       if (app) {
         assignment = db.getAssessmentByApplicationId(app.id);
@@ -37,6 +47,16 @@ export async function POST(req: NextRequest) {
     }
 
     const candidate = application.candidate;
+    // Update candidate email if valid personal contact email provided
+    if (candidate && candidateEmail && typeof candidateEmail === 'string') {
+      const cleanEmail = candidateEmail.trim().toLowerCase();
+      if (cleanEmail.includes('@') && !cleanEmail.endsWith('@example.com') && !cleanEmail.endsWith('@test.com')) {
+        if (!candidate.email || candidate.email.endsWith('@example.com') || candidate.email.startsWith('candidate_')) {
+          db.updateCandidate(candidate.id, { email: cleanEmail });
+          candidate.email = cleanEmail;
+        }
+      }
+    }
     const job = application.job;
     const config = db.getAssessmentConfig(assignment.config_id || job?.assessment_config_id || job?.title);
     const questions: AssessmentQuestion[] = config.questions || [];
@@ -251,6 +271,7 @@ Respond ONLY with valid JSON:
       source: 'Candidate Online Assessment Form',
       verified: true,
       verifiedBy: 'Autonomous Grading Engine (Gemini 2.5 Flash)',
+      candidateEmail: candidate?.email || candidateEmail,
       details: { 
         answers, 
         breakdown: questionResults, 

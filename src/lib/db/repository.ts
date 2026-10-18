@@ -853,6 +853,20 @@ export const db = {
     return { candidate, application };
   },
 
+  updateCandidate(candidateId: string, updates: Partial<Candidate>): Candidate | null {
+    const store = getStore();
+    const idx = store.candidates.findIndex(c => c.id === candidateId);
+    if (idx === -1) return null;
+
+    store.candidates[idx] = {
+      ...store.candidates[idx],
+      ...updates,
+      updated_at: new Date().toISOString()
+    };
+    saveStore(store);
+    return store.candidates[idx];
+  },
+
   // CV Documents
   saveCVDocument(docData: Omit<CVDocument, 'id' | 'created_at' | 'updated_at'>): CVDocument {
     const store = getStore();
@@ -1081,50 +1095,45 @@ export const db = {
 
   getOrCreateAssessmentById(id: string): { assignment: AssessmentAssignment; application: Application | null; candidate: Candidate | null; job: Job | null } | null {
     const store = getStore();
-    let assignment = store.assessment_assignments.find(a => a.id === id || a.application_id === id || a.id.toLowerCase() === id.toLowerCase()) || null;
+    const cleanId = id.trim();
+    let assignment = store.assessment_assignments.find(
+      a => a.id === cleanId || a.application_id === cleanId || a.id.toLowerCase() === cleanId.toLowerCase()
+    ) || null;
 
-    if (!assignment && (id.startsWith('assess-') || id.length >= 8)) {
-      let app = store.applications.find(a => a.stage === 'ASSESSMENT') || store.applications[0];
-      const defaultJob = store.jobs[0] || DEFAULT_JOB;
-      const defaultCandidate = (app ? store.candidates.find(c => c.id === app.candidate_id) : null) || store.candidates[0] || {
-        id: 'cand-session',
-        first_name: 'Shortlisted',
-        last_name: 'Candidate',
-        email: 'candidate@example.com'
-      };
-
-      if (!app) {
-        app = {
-          id: 'app-' + id,
-          job_id: defaultJob.id,
-          candidate_id: defaultCandidate.id,
-          stage: 'ASSESSMENT',
-          screening_status: 'COMPLETED',
-          invitation_status: 'SENT',
-          assessment_status: 'NOT_STARTED',
-          interview_status: 'NOT_SCHEDULED',
-          human_approved: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        store.applications.push(app);
+    if (!assignment) {
+      // 1. Check if the provided ID is an application ID
+      const appById = store.applications.find(
+        a => a.id === cleanId || a.id.toLowerCase() === cleanId.toLowerCase()
+      );
+      if (appById) {
+        // Look for existing assignment for this application
+        assignment = store.assessment_assignments.find(a => a.application_id === appById.id) || null;
+        if (!assignment) {
+          const appJob = store.jobs.find(j => j.id === appById.job_id) || store.jobs[0] || DEFAULT_JOB;
+          assignment = {
+            id: 'assess-' + appById.id.replace(/^app-/, ''),
+            application_id: appById.id,
+            config_id: appJob.assessment_config_id || 'cfg-fullstack',
+            assessment_type: 'EXTERNAL_URL',
+            assessment_url: `/assessment/take/${appById.id}`,
+            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            pass_threshold_percentage: 70,
+            status: 'SENT',
+            verified: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          store.assessment_assignments.push(assignment);
+          saveStore(store);
+        }
       }
+    }
 
-      assignment = {
-        id,
-        application_id: app.id,
-        config_id: defaultJob.assessment_config_id || 'cfg-fullstack',
-        assessment_type: 'EXTERNAL_URL',
-        assessment_url: `/assessment/take/${id}`,
-        due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        pass_threshold_percentage: 70,
-        status: 'SENT',
-        verified: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      store.assessment_assignments.push(assignment);
-      saveStore(store);
+    if (!assignment && cleanId.length >= 8) {
+      // 2. Check if ID appears in an assessment URL
+      assignment = store.assessment_assignments.find(
+        a => a.assessment_url && a.assessment_url.includes(cleanId)
+      ) || null;
     }
 
     if (!assignment) return null;
@@ -1327,6 +1336,7 @@ export const db = {
       source: string; 
       verified?: boolean; 
       verifiedBy?: string; 
+      candidateEmail?: string;
       details?: Record<string, unknown> 
     }
   ): AssessmentAssignment | null {
@@ -1372,41 +1382,70 @@ export const db = {
           
           const candidate = store.candidates.find(c => c.id === store.applications[appIdx].candidate_id);
           const job = store.jobs.find(j => j.id === store.applications[appIdx].job_id);
-          
-          // Determine booking URL: Use recruiter's Calendly link from UI / Job, fallback to Google Meet
-          const calendlyLink = (job?.calendly_link || store.assessment_config?.calendly_link || '').trim();
-          const fallbackMeetUrl = generateMeetLink(appId);
-          const bookingUrl = calendlyLink || fallbackMeetUrl;
 
-          const interview: Interview = {
-            id: 'int-' + Date.now(),
-            application_id: appId,
-            interviewer_id: interviewer.id,
-            interviewer_name: interviewer.name,
-            round_number: 2,
-            scheduled_start: scheduledStart,
-            scheduled_end: new Date(endMs).toISOString(),
-            timezone: interviewer.timezone || 'America/New_York',
-            duration_minutes: 45,
-            scheduling_mode: calendlyLink ? 'MANUAL' : 'GOOGLE_CALENDAR',
-            booking_status: 'SCHEDULED',
-            meeting_url: bookingUrl,
-            calendly_url: calendlyLink || undefined,
-            google_event_id: `cal_event_round2_${Date.now()}`,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          store.interviews.push(interview);
-
-          // Dispatch Round 2 interview email with Calendly booking link (Human, non-AI tone)
           if (candidate) {
-            const firstName = candidate.first_name || 'there';
+            // If caller provided candidate's real email, synchronize it now
+            if (data.candidateEmail && typeof data.candidateEmail === 'string') {
+              const cleanEmail = data.candidateEmail.trim().toLowerCase();
+              if (cleanEmail.includes('@') && !cleanEmail.endsWith('@example.com') && !cleanEmail.endsWith('@test.com')) {
+                candidate.email = cleanEmail;
+              }
+            }
+
+            // Sanitize candidate first and last names (ensure never numeric e.g. "40")
+            const rawFullName = `${candidate.first_name || ''} ${candidate.last_name || ''}`.trim();
+            const cleanNames = rawFullName.replace(/\d+/g, '').replace(/[^\p{L}\s'-]/gu, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length >= 2);
+            let cleanFirstName = cleanNames[0] ? (cleanNames[0].charAt(0).toUpperCase() + cleanNames[0].slice(1).toLowerCase()) : 'there';
+            let cleanLastName = cleanNames.slice(1).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
+            if (cleanFirstName.toLowerCase() === 'there' || cleanFirstName.toLowerCase() === 'candidate') {
+              const cvDoc = store.cv_documents.find(d => d.id === store.applications[appIdx].cv_document_id || d.candidate_id === candidate.id);
+              if (cvDoc?.file_name) {
+                const nameFromDoc = cvDoc.file_name.replace(/\.[^.]+$/, '').replace(/^\s*\d+[\s._-]*/, '').replace(/[-_.]/g, ' ').trim();
+                const docWords = nameFromDoc.replace(/\d+/g, '').replace(/[^\p{L}\s'-]/gu, ' ').split(/\s+/).filter(w => w.length >= 2);
+                if (docWords.length > 0) {
+                  cleanFirstName = docWords[0].charAt(0).toUpperCase() + docWords[0].slice(1).toLowerCase();
+                  cleanLastName = docWords.slice(1).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+                }
+              }
+            }
+
+            candidate.first_name = cleanFirstName === 'there' ? 'Candidate' : cleanFirstName;
+            candidate.last_name = cleanLastName;
+            const recipientName = `${candidate.first_name} ${candidate.last_name}`.trim();
+          
+            // Determine booking URL: Use recruiter's Calendly link from UI / Job, fallback to Google Meet
+            const calendlyLink = (job?.calendly_link || store.assessment_config?.calendly_link || '').trim();
+            const fallbackMeetUrl = generateMeetLink(appId);
+            const bookingUrl = calendlyLink || fallbackMeetUrl;
+
+            const interview: Interview = {
+              id: 'int-' + Date.now(),
+              application_id: appId,
+              interviewer_id: interviewer.id,
+              interviewer_name: interviewer.name,
+              round_number: 2,
+              scheduled_start: scheduledStart,
+              scheduled_end: new Date(endMs).toISOString(),
+              timezone: interviewer.timezone || 'America/New_York',
+              duration_minutes: 45,
+              scheduling_mode: calendlyLink ? 'MANUAL' : 'GOOGLE_CALENDAR',
+              booking_status: 'SCHEDULED',
+              meeting_url: bookingUrl,
+              calendly_url: calendlyLink || undefined,
+              google_event_id: `cal_event_round2_${Date.now()}`,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            };
+            store.interviews.push(interview);
+
+            // Dispatch Round 2 interview email with Calendly booking link (Human, non-AI tone)
             const roleTitle = job?.title || 'Senior Full-Stack Cloud Engineer';
             const subject = `Next steps: Technical Interview for ${roleTitle}`;
             const bodyHtml = `
               <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; color: #1f2937; line-height: 1.6; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
                 <p style="font-size: 15px; margin-top: 0; margin-bottom: 20px; color: #111827;">
-                  Hi ${firstName},
+                  Hi ${cleanFirstName},
                 </p>
 
                 <p style="font-size: 15px; margin-bottom: 16px; color: #374151;">
@@ -1444,7 +1483,7 @@ export const db = {
             const email: SentEmail = {
               id: 'email-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
               recipient_email: candidate.email,
-              recipient_name: `${candidate.first_name} ${candidate.last_name}`.trim(),
+              recipient_name: recipientName,
               subject,
               body_html: bodyHtml,
               template_type: 'ROUND_2_INTERVIEW_INVITATION',

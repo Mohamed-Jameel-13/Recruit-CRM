@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { db } from '@/lib/db/repository';
-import { extractResumeData } from '@/lib/extractor/parser';
+import { extractResumeData, sanitizeCandidateName, isValidContactEmail } from '@/lib/extractor/parser';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
 import { emailDispatcher } from '@/lib/email/dispatcher';
 import { ScreeningRecommendation } from '@/types/database';
@@ -218,16 +218,17 @@ export async function POST(req: NextRequest) {
           parsing_status: 'parsed'
         });
 
-        // 6. Create Candidate & Application
-        const nameParts = (extracted.name || 'Candidate').split(' ');
-        const firstName = nameParts[0];
-        const lastName = nameParts.slice(1).join(' ') || '';
+        // 6. Create Candidate & Application with sanitized human name
+        const initialSanitized = sanitizeCandidateName(extracted.name, fileName);
+        let firstName = initialSanitized.firstName;
+        let lastName = initialSanitized.lastName;
+        let candidateEmail = extracted.email || `candidate_${hash.substring(0, 8)}@example.com`;
 
         const { candidate, application } = db.createApplicationWithCandidate({
           jobId: job.id,
           firstName,
           lastName,
-          email: extracted.email || `candidate_${hash.substring(0, 8)}@example.com`,
+          email: candidateEmail,
           phone: extracted.phone,
           location: extracted.location,
           cvDocId: cvDoc.id,
@@ -246,6 +247,7 @@ export async function POST(req: NextRequest) {
         let modelProviderUsed = 'rule-based-engine';
         let modelNameUsed = 'semantic-equivalence-matrix-v1';
         let isFallback = true;
+        let createdAssignment: any = null;
 
         // 7. Perform Intelligent Semantic AI Screening
         if (job.criteria) {
@@ -258,6 +260,29 @@ export async function POST(req: NextRequest) {
             job.description,
             clientLlmConfig
           );
+
+          // If AI detected a verified candidate name or personal contact email from the CV
+          const aiResult = screeningOutcome?.screeningResult;
+          if (aiResult?.candidateName) {
+            const aiSanitized = sanitizeCandidateName(aiResult.candidateName, fileName);
+            if (aiSanitized.firstName && aiSanitized.firstName !== 'Candidate') {
+              firstName = aiSanitized.firstName;
+              lastName = aiSanitized.lastName;
+            }
+          }
+          if (aiResult?.candidateEmail && isValidContactEmail(aiResult.candidateEmail)) {
+            candidateEmail = aiResult.candidateEmail.trim().toLowerCase();
+          }
+
+          // Persist verified candidate details in database
+          db.updateCandidate(candidate.id, {
+            first_name: firstName,
+            last_name: lastName,
+            email: candidateEmail
+          });
+          candidate.first_name = firstName;
+          candidate.last_name = lastName;
+          candidate.email = candidateEmail;
 
           matchScore = screeningOutcome.screeningResult.matchScore;
           recommendation = screeningOutcome.screeningResult.recommendation;
@@ -290,6 +315,7 @@ export async function POST(req: NextRequest) {
             try {
               db.approveForAssessment(application.id, 'Autonomous Screening AI Policy', assessmentConfigId || job.assessment_config_id);
               const assignment = db.getAssessmentByApplicationId(application.id);
+              createdAssignment = assignment;
 
               if (assignment) {
                 const customFormUrl = formData.get('assessmentUrl') as string;
@@ -325,6 +351,7 @@ export async function POST(req: NextRequest) {
           candidateName: `${firstName} ${lastName}`.trim(),
           candidateEmail: candidate.email,
           applicationId: application.id,
+          assessmentId: createdAssignment?.id,
           matchScore,
           recommendation,
           isShortlisted,

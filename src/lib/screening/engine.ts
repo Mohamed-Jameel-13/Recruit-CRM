@@ -8,8 +8,9 @@ import {
   ScreeningEvidenceItem 
 } from '@/types/database';
 
-// 1. Zod Schema for Structured AI Output Validation
 export const ScreeningOutputSchema = z.object({
+  candidateName: z.string().optional(),
+  candidateEmail: z.string().optional(),
   matchScore: z.number().min(0).max(100),
   categoryScores: z.object({
     skills: z.number().optional(),
@@ -437,7 +438,21 @@ export function normalizeScreeningOutput(
     domain: typeof raw.categoryScores?.domain === 'number' ? raw.categoryScores.domain : Math.round(matchScore * 0.15),
   };
 
+  const candidateName = typeof raw.candidateName === 'string' && raw.candidateName.trim()
+    ? raw.candidateName.trim()
+    : typeof raw.candidate_name === 'string' && raw.candidate_name.trim()
+    ? raw.candidate_name.trim()
+    : undefined;
+
+  const candidateEmail = typeof raw.candidateEmail === 'string' && raw.candidateEmail.trim()
+    ? raw.candidateEmail.trim().toLowerCase()
+    : typeof raw.candidate_email === 'string' && raw.candidate_email.trim()
+    ? raw.candidate_email.trim().toLowerCase()
+    : undefined;
+
   return {
+    candidateName,
+    candidateEmail,
     matchScore,
     categoryScores,
     recommendation,
@@ -526,6 +541,8 @@ Do NOT evaluate solely based on exact keyword strings. Recognize transferable co
 
 Respond ONLY with a valid JSON object adhering strictly to this schema:
 {
+  "candidateName": string (the real human full name of the candidate extracted from the resume header, e.g. "Elena Rostova" or "John Doe" - never include numbers or job titles),
+  "candidateEmail": string (the primary personal email address of the candidate, e.g. "elena.rostova@gmail.com"),
   "matchScore": number (0 to 100),
   "categoryScores": {
     "skills": number (0 to 40),

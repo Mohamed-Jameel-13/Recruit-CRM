@@ -237,7 +237,9 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             assessmentId,
+            assignmentId: assessmentId,
             candidateEmail,
+            score: 92,
             timeSpentMinutes: 32,
             answers: [
               {
@@ -432,8 +434,9 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
                   const updated = [...prev];
                   for (const cand of newShortlisted) {
                     if (!updated.some((u) => u.applicationId === cand.applicationId)) {
+                      const realAssessmentId = (cand as any).assessmentId || (cand.testUrl ? cand.testUrl.replace(/^\/assessment\/take\//, '') : cand.applicationId);
                       updated.push({
-                        id: cand.applicationId,
+                        id: realAssessmentId,
                         applicationId: cand.applicationId,
                         candidateEmail: cand.candidateEmail,
                         candidateName: cand.candidateName,

@@ -88,7 +88,7 @@ export default async function TakeAssessmentPage({ params }: PageProps) {
 
   return (
     <AssessmentClient 
-      assignmentId={id} 
+      assignmentId={assignment.id || id} 
       initialData={initialData} 
     />
   );

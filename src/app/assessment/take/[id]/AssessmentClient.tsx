@@ -56,6 +56,11 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
   const config = assessmentData?.config;
   const durationMinutes = config?.duration_minutes || 45;
 
+  // Sanitized candidate name (prevent numeric fragments e.g. "40")
+  const cleanFirstName = candidate?.first_name?.replace(/^\d+[\s_-]*/, '').replace(/\d+/g, '').trim() || 'Candidate';
+  const cleanLastName = candidate?.last_name?.replace(/^\d+[\s_-]*/, '').replace(/\d+/g, '').trim() || '';
+  const displayName = `${cleanFirstName} ${cleanLastName}`.trim();
+
   // Determine initial stage: if already submitted, go directly to COMPLETED
   const initialCompleted = Boolean(initialData.assessment?.isSubmitted);
 
@@ -129,12 +134,14 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
   async function executeSubmission(isAuto: boolean) {
     setStage('SUBMITTING');
     try {
+      const targetAssignmentId = assignmentId || assessmentData?.assessment?.id;
       const candidateEmail = candidate?.email;
       const res = await fetch('/api/assessments/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          assignmentId,
+          assignmentId: targetAssignmentId,
+          assessmentId: targetAssignmentId,
           answers,
           candidateEmail,
           autoSubmitted: isAuto
@@ -197,7 +204,7 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
 
             <div className="text-right">
               <span className="text-xs font-semibold text-slate-900 block">
-                {candidate?.first_name} {candidate?.last_name}
+                {displayName}
               </span>
               <span className="text-[11px] text-slate-500 font-mono">
                 {candidate?.email}
@@ -220,7 +227,7 @@ export function AssessmentClient({ assignmentId, initialData }: AssessmentClient
                   {job?.title || 'Senior Software Engineer'}
                 </h1>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  Welcome, <strong>{candidate?.first_name}</strong>. Please review the instructions below and begin when you are ready.
+                  Welcome, <strong>{cleanFirstName}</strong>. Please review the instructions below and begin when you are ready.
                 </p>
               </div>
 

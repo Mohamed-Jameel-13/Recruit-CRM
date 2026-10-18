@@ -199,13 +199,130 @@ export async function extractResumeData(
   return extractMetadataFromText(rawText, fileName);
 }
 
-export function extractMetadataFromText(text: string, fallbackFileName: string): ExtractedCandidateData {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+export function isValidContactEmail(email?: string | null): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const clean = email.trim().toLowerCase();
+  if (!clean.includes('@') || !clean.includes('.')) return false;
+  if (clean.includes('example.com') || clean.includes('test.com') || clean.includes('localhost')) return false;
+  if (clean.startsWith('candidate_') || clean.startsWith('applicant_')) return false;
+  return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(clean);
+}
 
-  // 1. Extract Email
+export function cleanCandidateNameFromFileName(fileName: string): string {
+  let cleaned = fileName
+    .replace(/\.[a-zA-Z0-9]+$/i, '')
+    .replace(/^\s*\d+[\s._-]*/, '') // Remove numeric prefixes e.g. "40_", "01 - "
+    .replace(/[-_.]/g, ' ')
+    .replace(/\b(cv|resume|profile|document|candidate|applicant|bio|data)\b/gi, ' ')
+    .replace(
+      /\b(fullstack|full-stack|frontend|front-end|backend|back-end|developer|engineer|architect|specialist|devops|cloud|junior|senior|lead|intern|polyglot|distributed|systems|approved|test|corrupted|borderline)\b/gi,
+      ' '
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (cleaned) {
+    const blacklistWords = new Set([
+      'fullstack', 'frontend', 'backend', 'devops', 'cloud', 'junior', 'senior',
+      'specialist', 'polyglot', 'distributed', 'systems', 'approved', 'test',
+      'corrupted', 'borderline', 'cv', 'resume', 'profile', 'developer', 'engineer',
+      'architect', 'architecture', 'fastapi', 'mysql', 'mongodb', 'vue', 'react',
+      'node', 'angular', 'python', 'java', 'golang', 'docker'
+    ]);
+
+    cleaned = cleaned
+      .split(' ')
+      .map(w => w.replace(/^[^a-zA-ZÀ-ÖØ-öø-ÿ]+|[^a-zA-ZÀ-ÖØ-öø-ÿ]+$/g, '').trim())
+      .filter((w) => /^[a-zA-ZÀ-ÖØ-öø-ÿ]+$/.test(w) && w.length >= 2 && !blacklistWords.has(w.toLowerCase()))
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+  }
+  return cleaned;
+}
+
+export function sanitizeCandidateName(
+  rawName?: string | null,
+  fallbackFileName?: string
+): { firstName: string; lastName: string; fullName: string } {
+  let cleaned = (rawName || '').trim();
+
+  // Strip digits and non-letter characters (except standard name apostrophes/hyphens)
+  cleaned = cleaned
+    .replace(/\d+/g, ' ')
+    .replace(/[^\p{L}\s'-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const blacklist = new Set([
+    'resume', 'cv', 'curriculum', 'vitae', 'developer', 'engineer', 'architect',
+    'specialist', 'designer', 'manager', 'lead', 'senior', 'junior', 'fullstack',
+    'frontend', 'backend', 'cloud', 'devops', 'software', 'hardware', 'intern',
+    'consultant', 'analyst', 'summary', 'objective', 'experience', 'education',
+    'skills', 'projects', 'contact', 'phone', 'email', 'address', 'street',
+    'avenue', 'road', 'suite', 'city', 'state', 'zip', 'page', 'year', 'years',
+    'old', 'something', 'candidate', 'applicant', 'profile', 'document', 'borderline'
+  ]);
+
+  let words = cleaned
+    .split(' ')
+    .map(w => w.replace(/^[^a-zA-ZÀ-ÖØ-öø-ÿ]+|[^a-zA-ZÀ-ÖØ-öø-ÿ]+$/g, '').trim())
+    .filter(w => /^[a-zA-ZÀ-ÖØ-öø-ÿ'-]+$/.test(w) && w.length >= 2 && !blacklist.has(w.toLowerCase()));
+
+  if (words.length === 0 && fallbackFileName) {
+    const fromFile = cleanCandidateNameFromFileName(fallbackFileName);
+    words = fromFile
+      .split(' ')
+      .map(w => w.replace(/^[^a-zA-ZÀ-ÖØ-öø-ÿ]+|[^a-zA-ZÀ-ÖØ-öø-ÿ]+$/g, '').trim())
+      .filter(w => /^[a-zA-ZÀ-ÖØ-öø-ÿ'-]+$/.test(w) && w.length >= 2 && !blacklist.has(w.toLowerCase()));
+  }
+
+  if (words.length === 0) {
+    return { firstName: 'Candidate', lastName: '', fullName: 'Candidate' };
+  }
+
+  const formatted = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  return {
+    firstName: formatted[0],
+    lastName: formatted.slice(1).join(' '),
+    fullName: formatted.join(' ')
+  };
+}
+
+
+export function extractMetadataFromText(text: string, fallbackFileName: string): ExtractedCandidateData {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  // 1. Extract Personal Email (filter out generic / corporate support emails)
   const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
-  const emailMatches = text.match(emailRegex);
-  const email = emailMatches && emailMatches.length > 0 ? emailMatches[0].toLowerCase() : undefined;
+  const allEmailMatches = text.match(emailRegex) || [];
+  const candidateEmails = allEmailMatches
+    .map((e) => e.toLowerCase())
+    .filter((e) => {
+      if (
+        e.includes('github.com') ||
+        e.includes('linkedin.com') ||
+        e.includes('w3.org') ||
+        e.includes('example.com') ||
+        e.includes('schema.org')
+      ) {
+        return false;
+      }
+      if (
+        e.startsWith('info@') ||
+        e.startsWith('support@') ||
+        e.startsWith('help@') ||
+        e.startsWith('careers@') ||
+        e.startsWith('jobs@') ||
+        e.startsWith('recruiting@') ||
+        e.startsWith('noreply@') ||
+        e.startsWith('contact@')
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+  const email = candidateEmails.length > 0 ? candidateEmails[0] : allEmailMatches[0]?.toLowerCase();
 
   // 2. Extract Phone
   const phoneRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
@@ -220,31 +337,68 @@ export function extractMetadataFromText(text: string, fallbackFileName: string):
   const linkedinUrl = linkedinMatches ? linkedinMatches[0] : undefined;
   const githubUrl = githubMatches ? githubMatches[0] : undefined;
 
-  // 4. Candidate Name: inspect top lines or file name
+  // 4. Candidate Name: Inspect header lines with strict human name rules
   let name = '';
-  if (lines.length > 0) {
-    for (let i = 0; i < Math.min(5, lines.length); i++) {
-      const line = lines[i];
-      if (
-        !line.includes('@') &&
-        !line.includes('http') &&
-        !line.match(/\d{4}/) &&
-        line.split(' ').length >= 2 &&
-        line.split(' ').length <= 4 &&
-        line.length < 50
-      ) {
-        name = line;
+
+  // 4a. Check for explicit name label: "Name: John Doe" or "Candidate Name: Elena Rostova"
+  const explicitNameRegex = /(?:candidate\s+name|full\s+name|name)\s*[:\-]\s*([a-zA-ZÀ-ÖØ-öø-ÿ\s'-]{2,40})/i;
+  for (const line of lines.slice(0, 10)) {
+    const match = line.match(explicitNameRegex);
+    if (match && match[1]) {
+      const candidateName = match[1].trim();
+      if (!/\d/.test(candidateName) && candidateName.split(' ').length >= 2) {
+        name = candidateName
+          .split(' ')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(' ');
         break;
       }
     }
   }
 
+  // 4b. Scan top 8 header lines
+  if (!name && lines.length > 0) {
+    const blacklistWords = new Set([
+      'resume', 'cv', 'curriculum', 'vitae', 'developer', 'engineer', 'architect',
+      'specialist', 'designer', 'manager', 'lead', 'senior', 'junior', 'fullstack',
+      'frontend', 'backend', 'cloud', 'devops', 'software', 'hardware', 'intern',
+      'consultant', 'analyst', 'summary', 'objective', 'experience', 'education',
+      'skills', 'projects', 'contact', 'phone', 'email', 'address', 'street',
+      'avenue', 'road', 'suite', 'city', 'state', 'zip', 'page', 'year', 'years',
+      'old', 'github', 'linkedin', 'portfolio', 'profile', 'references', 'something'
+    ]);
+
+    for (let i = 0; i < Math.min(8, lines.length); i++) {
+      const line = lines[i].trim();
+      // Candidate names NEVER contain numbers (reject lines like "40-something years old" or phone numbers)
+      if (/\d/.test(line)) continue;
+      if (line.includes('@') || line.includes('http') || line.includes('www.') || line.includes('|')) continue;
+      if (/[#%^&*()_+={}\[\]:;"<>\\\/~]/.test(line)) continue;
+
+      const words = line.split(/\s+/).filter(Boolean);
+      if (words.length < 2 || words.length > 4) continue;
+      if (line.length > 40 || line.length < 4) continue;
+
+      // Reject lines containing blacklisted job titles or resume keywords
+      const hasBlacklist = words.some((w) =>
+        blacklistWords.has(w.toLowerCase().replace(/[^a-z]/g, ''))
+      );
+      if (hasBlacklist) continue;
+
+      // Ensure every word is purely alphabetic (letters and optional hyphen/apostrophe)
+      const allAlpha = words.every(
+        (w) => /^[a-zA-ZÀ-ÖØ-öø-ÿ'-]+$/.test(w) && w.length >= 2
+      );
+      if (!allAlpha) continue;
+
+      name = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      break;
+    }
+  }
+
+  // 4c. Smart filename fallback (clean numbers like "40_" or "01_" and role suffixes)
   if (!name) {
-    name = fallbackFileName
-      .replace(/\.(pdf|docx|txt)$/i, '')
-      .replace(/[-_]/g, ' ')
-      .replace(/\b(cv|resume|profile|document)\b/gi, '')
-      .trim();
+    name = cleanCandidateNameFromFileName(fallbackFileName) || 'Candidate';
   }
 
   // 5. Extract Skills

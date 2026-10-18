@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { db } from '@/lib/db/repository';
-import { extractResumeData } from '@/lib/extractor/parser';
+import { extractResumeData, sanitizeCandidateName, isValidContactEmail } from '@/lib/extractor/parser';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
 import { emailDispatcher } from '@/lib/email/dispatcher';
 
@@ -75,19 +75,16 @@ export async function POST(req: NextRequest) {
           parsing_status: 'parsed'
         });
 
-        const rawName = (extracted.name || 'Candidate')
-          .split(' ')
-          .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-          .join(' ');
-        const nameParts = rawName.split(' ');
-        const firstName = nameParts[0];
-        const lastName = nameParts.slice(1).join(' ') || '';
+        const initialSanitized = sanitizeCandidateName(extracted.name, fileName);
+        let firstName = initialSanitized.firstName;
+        let lastName = initialSanitized.lastName;
+        let candidateEmail = extracted.email || `candidate_${hash.substring(0, 8)}@example.com`;
 
         const { candidate, application } = db.createApplicationWithCandidate({
           jobId: job.id,
           firstName,
           lastName,
-          email: extracted.email || `candidate_${hash.substring(0, 8)}@example.com`,
+          email: candidateEmail,
           phone: extracted.phone,
           location: extracted.location,
           cvDocId: cvDoc.id,
@@ -113,6 +110,28 @@ export async function POST(req: NextRequest) {
 
           score = screeningOutcome.screeningResult.matchScore;
           recommendation = screeningOutcome.screeningResult.recommendation;
+
+          // Sync AI verified candidate name and email
+          const aiResult = screeningOutcome?.screeningResult;
+          if (aiResult?.candidateName) {
+            const aiSanitized = sanitizeCandidateName(aiResult.candidateName, fileName);
+            if (aiSanitized.firstName && aiSanitized.firstName !== 'Candidate') {
+              firstName = aiSanitized.firstName;
+              lastName = aiSanitized.lastName;
+            }
+          }
+          if (aiResult?.candidateEmail && isValidContactEmail(aiResult.candidateEmail)) {
+            candidateEmail = aiResult.candidateEmail.trim().toLowerCase();
+          }
+
+          db.updateCandidate(candidate.id, {
+            first_name: firstName,
+            last_name: lastName,
+            email: candidateEmail
+          });
+          candidate.first_name = firstName;
+          candidate.last_name = lastName;
+          candidate.email = candidateEmail;
 
           db.recordScreeningRun({
             application_id: application.id,
