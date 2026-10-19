@@ -38,11 +38,15 @@ export function Header() {
       const res = await fetch('/api/system/reset', { method: 'POST' });
       if (!res.ok) throw new Error('Reset request failed');
 
-      // Thoroughly clear all cached client-side pipeline results, assessment statuses, and session records
+      // Thoroughly clear all cached client-side pipeline results, assessment statuses, and session records while preserving user LLM settings and theme
       if (typeof window !== 'undefined') {
         try {
+          const savedLlmConfig = localStorage.getItem('recruitai_llm_config');
+          const savedTheme = localStorage.getItem('theme');
           localStorage.clear();
           sessionStorage.clear();
+          if (savedLlmConfig) localStorage.setItem('recruitai_llm_config', savedLlmConfig);
+          if (savedTheme) localStorage.setItem('theme', savedTheme);
           window.dispatchEvent(new CustomEvent('recruitcrm:data_updated', { detail: { action: 'reset' } }));
         } catch {}
       }

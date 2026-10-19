@@ -8,6 +8,7 @@ import { screenCandidateWithAI } from '@/lib/screening/engine';
 import { emailDispatcher, getAppBaseUrl } from '@/lib/email/dispatcher';
 import { ScreeningRecommendation } from '@/types/database';
 
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {

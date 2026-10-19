@@ -465,7 +465,9 @@ export async function saveLLMConfigAsync(
   } else if (
     newConfig.apiKey !== undefined &&
     newConfig.apiKey !== '__KEEP_EXISTING__' &&
-    newConfig.apiKey.trim() !== ''
+    newConfig.apiKey.trim() !== '' &&
+    !newConfig.apiKey.includes('•') &&
+    !newConfig.apiKey.includes('*')
   ) {
     apiKeyToSave = newConfig.apiKey.trim();
   }

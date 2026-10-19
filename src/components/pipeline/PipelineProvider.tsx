@@ -364,11 +364,20 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
           failed: [],
         });
 
-        // Forward LLM config from localStorage
+        // Forward LLM config from localStorage or server endpoint
         let activeLlmConfigJson = '';
         try {
           const stored = localStorage.getItem('recruitai_llm_config');
-          if (stored) activeLlmConfigJson = stored;
+          if (stored) {
+            activeLlmConfigJson = stored;
+          } else {
+            const configRes = await fetch('/api/llm/config');
+            const configData = await configRes.json();
+            if (configData?.config) {
+              activeLlmConfigJson = JSON.stringify(configData.config);
+              try { localStorage.setItem('recruitai_llm_config', activeLlmConfigJson); } catch {}
+            }
+          }
         } catch {}
 
         for (let idx = 0; idx < total; idx++) {

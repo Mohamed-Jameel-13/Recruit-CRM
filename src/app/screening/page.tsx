@@ -179,6 +179,14 @@ export default function ScreeningReviewPage() {
       let storedConfig = '';
       try {
         storedConfig = localStorage.getItem('recruitai_llm_config') || '';
+        if (!storedConfig) {
+          const configRes = await fetch('/api/llm/config');
+          const configData = await configRes.json();
+          if (configData?.config) {
+            storedConfig = JSON.stringify(configData.config);
+            try { localStorage.setItem('recruitai_llm_config', storedConfig); } catch {}
+          }
+        }
       } catch {}
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };

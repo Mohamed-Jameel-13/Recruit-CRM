@@ -527,7 +527,9 @@ export async function screenCandidateWithAI(
     !safeOverrides.apiKey ||
     typeof safeOverrides.apiKey !== 'string' ||
     !safeOverrides.apiKey.trim() ||
-    safeOverrides.apiKey === '__KEEP_EXISTING__'
+    safeOverrides.apiKey === '__KEEP_EXISTING__' ||
+    safeOverrides.apiKey.includes('•') ||
+    safeOverrides.apiKey.includes('*')
   ) {
     delete safeOverrides.apiKey;
   }
@@ -657,14 +659,10 @@ ${extractedText.substring(0, 10000)}
     console.log(`   Candidate Extracted Skills: ${candidateSkills.join(', ')} (${yearsExperience} yrs exp)`);
     console.log(`   Calling Generative AI Engine (Deterministic Greedy Decoding)...`);
 
-    const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    // On serverless (Vercel), ensure LLM screening never exceeds safe budget (default 5.5s)
-    const defaultServerlessTimeout = 5500;
+    const defaultTimeout = 30000;
     const SCREENING_TIMEOUT_MS = timeoutBudgetMs
-      ? Math.max(1500, timeoutBudgetMs)
-      : isServerless
-      ? defaultServerlessTimeout
-      : 15000;
+      ? Math.max(5000, timeoutBudgetMs)
+      : defaultTimeout;
 
     const llmResult = await callUniversalLLM(
       [
@@ -701,11 +699,9 @@ ${extractedText.substring(0, 10000)}
   } catch (error: unknown) {
     console.error(`❌ [AI SCREENING FAILED WITH CONFIGURED MODEL]:`, error instanceof Error ? error.message : String(error));
     
-    // Automatic AI Resilience: Only attempt secondary Gemini fallback if running locally with ample execution budget
-    // On Vercel serverless, running another remote LLM will exceed the 10s container limit and trigger HTTP 504
-    const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    // Automatic AI Resilience: If user-configured custom endpoint fails, fall back to official Gemini AI if available
     const geminiKey = process.env.GEMINI_API_KEY;
-    if (!isServerless && config.provider !== 'gemini' && geminiKey && geminiKey.trim()) {
+    if (config.provider !== 'gemini' && geminiKey && geminiKey.trim()) {
       try {
         console.log(`🔄 [AI FALLBACK] Retrying screening with Google Gemini 2.5 Flash...`);
         const { callUniversalLLM } = await import('@/lib/llm/client');
@@ -715,7 +711,7 @@ ${extractedText.substring(0, 10000)}
             { role: 'user', content: userPrompt }
           ],
           { provider: 'gemini', model: 'gemini-2.5-flash', apiKey: geminiKey.trim(), temperature: 0.0, maxTokens: 4096 },
-          8000
+          10000
         );
         const rawParsed = extractJsonFromLlmResponse(fallbackLlmResult.content);
         const validated = normalizeScreeningOutput(rawParsed, candidateSkills, yearsExperience);

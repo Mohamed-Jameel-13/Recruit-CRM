@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { screenCandidateWithAI } from '@/lib/screening/engine';
 
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {

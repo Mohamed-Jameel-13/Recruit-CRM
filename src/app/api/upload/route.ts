@@ -63,8 +63,7 @@ function getRequestBaseUrl(req: NextRequest): string {
 
 export async function POST(req: NextRequest) {
   const requestStartTime = Date.now();
-  const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-  const MAX_SAFE_BUDGET_MS = isServerless ? 8500 : 50000;
+  const MAX_SAFE_BUDGET_MS = 45000; // 45 seconds execution budget on Vercel (safe with maxDuration: 60)
   const fastFallbackRequested = req.headers.get('x-fast-fallback') === 'true';
 
   try {
@@ -257,7 +256,7 @@ export async function POST(req: NextRequest) {
         // 7. Perform Intelligent Semantic AI Screening
         if (job.criteria) {
           const elapsed = Date.now() - requestStartTime;
-          const remainingForAI = Math.max(2000, MAX_SAFE_BUDGET_MS - elapsed - 2200);
+          const remainingForAI = Math.max(15000, MAX_SAFE_BUDGET_MS - elapsed - 3000);
           const effectiveConfig = {
             ...(clientLlmConfig || {}),
             fastFallback: fastFallbackRequested
